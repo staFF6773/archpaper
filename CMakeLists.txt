@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets Network)
 
 # Shared C core (static library)
 add_library(archpaper_core STATIC
@@ -43,6 +43,19 @@ add_executable(archpaper
     src/gui/components/previewpanel.h
     src/gui/components/settingspanel.cpp
     src/gui/components/settingspanel.h
+    src/gui/components/marketgrid.cpp
+    src/gui/components/marketgrid.h
+    src/gui/components/marketpreviewpanel.cpp
+    src/gui/components/marketpreviewpanel.h
+    src/gui/components/marketpanel.cpp
+    src/gui/components/marketpanel.h
+    src/gui/market/marketprovider.h
+    src/gui/market/wallhavenprovider.cpp
+    src/gui/market/wallhavenprovider.h
+    src/gui/market/moewallsprovider.cpp
+    src/gui/market/moewallsprovider.h
+    src/gui/market/marketservice.cpp
+    src/gui/market/marketservice.h
     src/gui/theme/resources.qrc
 )
 
@@ -51,6 +64,7 @@ target_link_libraries(archpaper PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::MultimediaWidgets
+    Qt6::Network
 )
 
 # Installation

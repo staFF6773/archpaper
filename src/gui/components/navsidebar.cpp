@@ -54,11 +54,13 @@ NavSidebar::NavSidebar(QWidget *parent)
     m_homeBtn = createSectionButton("\u2302", "Home", m_group);
     m_favBtn = createSectionButton("\u2605", "Favorites", m_group);
     m_recentBtn = createSectionButton("\u21bb", "Recent", m_group);
+    m_marketBtn = createSectionButton("\u263a", "Market", m_group);
     m_settingsBtn = createToggleButton("\u2699", "Settings");
 
     m_homeBtn->setProperty("section", Home);
     m_favBtn->setProperty("section", Favorites);
     m_recentBtn->setProperty("section", Recent);
+    m_marketBtn->setProperty("section", Market);
     m_settingsBtn->setProperty("section", Settings);
 
     m_homeBtn->setChecked(true);
@@ -91,6 +93,7 @@ NavSidebar::NavSidebar(QWidget *parent)
     layout->addWidget(m_homeBtn);
     layout->addWidget(m_favBtn);
     layout->addWidget(m_recentBtn);
+    layout->addWidget(m_marketBtn);
     layout->addStretch();
     layout->addWidget(m_settingsBtn);
 }
@@ -109,6 +112,7 @@ void NavSidebar::setSection(NavSidebar::Section section) {
         case Home: m_homeBtn->setChecked(true); break;
         case Favorites: m_favBtn->setChecked(true); break;
         case Recent: m_recentBtn->setChecked(true); break;
+        case Market: m_marketBtn->setChecked(true); break;
         case Settings:
             m_settingsBtn->setChecked(true);
             break;

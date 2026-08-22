@@ -22,7 +22,7 @@ class NavSidebar : public QFrame {
     Q_OBJECT
 
 public:
-    enum Section { Home, Favorites, Recent, Settings };
+    enum Section { Home, Favorites, Recent, Market, Settings };
     Q_ENUM(Section)
 
     explicit NavSidebar(QWidget *parent = nullptr);
@@ -45,6 +45,7 @@ private:
     QToolButton *m_homeBtn;
     QToolButton *m_favBtn;
     QToolButton *m_recentBtn;
+    QToolButton *m_marketBtn;
     QToolButton *m_settingsBtn;
     Section m_currentSection = Home;
 };

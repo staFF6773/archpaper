@@ -5,11 +5,12 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 ## Features
 
 - **Qt6 GUI** inspired by Wallpaper Engine:
-  - Dark sidebar with quick sections: Home, Favorites, Recent and Settings.
+  - Dark sidebar with quick sections: Home, Favorites, Recent, Market and Settings.
   - Top bar with title, search and backend/mode selectors.
   - Folder panel with your favorite wallpaper directories.
   - Responsive thumbnail grid with rounded cards and file names.
   - Hero preview panel with image info, favorite toggle and apply controls.
+- **Built-in Market** to browse and download wallpapers directly from **Wallhaven** (static images) and **MoeWalls** (live/animated wallpapers) without opening a browser.
 - **Quick filter** by file name across the current section.
 - **Double click** to apply a wallpaper directly.
 - **Favorites** and **Recent** wallpapers tracked automatically.
@@ -26,6 +27,7 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 swaybg
 qt6-base
 qt6-multimedia
+qt6-network
 ```
 
 Optional:
@@ -72,13 +74,23 @@ archpaper
 ```
 
 In the window:
-- Use the **sidebar** to switch between Home, Favorites, Recent and Settings.
+- Use the **sidebar** to switch between Home, Favorites, Recent, Market and Settings.
 - Select a folder from the folder panel (or add/remove folders).
 - Click a thumbnail to see the preview in the right panel.
 - Double-click or press **Apply** to set the wallpaper.
 - Use the search box to filter by name.
 - Press the star button to add/remove wallpapers from Favorites.
-- Open Settings to configure the backend, mode, wallust and the daemon.
+- Open **Market** to browse wallpapers from Wallhaven and MoeWalls, download them, or download and apply them directly.
+- Open Settings to configure the backend, mode, wallust, the daemon and Market options (download folder, Wallhaven API key/purity).
+
+### Market
+
+The **Market** section lets you search online wallpaper sources without opening a browser.
+
+- **Source:** search Wallhaven (static images), MoeWalls (live/animated videos) or both.
+- **Purity:** filter Wallhaven results by SFW, Sketchy, NSFW or All (NSFW/All require a Wallhaven API key).
+- **Download folder:** choose where downloaded wallpapers are saved (defaults to `~/Pictures/Wallpapers`).
+- **Download** saves the wallpaper to your folder; **Download & Apply** also sets it immediately.
 
 ### CLI
 
