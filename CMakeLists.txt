@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
 
 # Shared C core (static library)
 add_library(archpaper_core STATIC
@@ -27,17 +27,30 @@ target_include_directories(archpaper_core PUBLIC
 
 target_compile_definitions(archpaper_core PRIVATE _DEFAULT_SOURCE)
 
-# Main executable: CLI + Qt GUI (programmatic UI)
+# Main executable: CLI + Qt GUI
 add_executable(archpaper
     src/cli/main.c
     src/gui/main.cpp
     src/gui/mainwindow.cpp
     src/gui/mainwindow.h
+    src/gui/components/navsidebar.cpp
+    src/gui/components/navsidebar.h
+    src/gui/components/folderspanel.cpp
+    src/gui/components/folderspanel.h
+    src/gui/components/wallpapergrid.cpp
+    src/gui/components/wallpapergrid.h
+    src/gui/components/previewpanel.cpp
+    src/gui/components/previewpanel.h
+    src/gui/components/settingspanel.cpp
+    src/gui/components/settingspanel.h
+    src/gui/theme/resources.qrc
 )
 
 target_link_libraries(archpaper PRIVATE
     archpaper_core
     Qt6::Widgets
+    Qt6::Multimedia
+    Qt6::MultimediaWidgets
 )
 
 # Installation

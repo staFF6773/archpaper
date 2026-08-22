@@ -5,9 +5,12 @@ pkgrel=1
 pkgdesc="Lightweight Wayland wallpaper manager with Qt6 GUI for Arch Linux"
 arch=('x86_64')
 url="https://github.com/staFF6773/archpaper"
-license=('MIT')
-depends=('swaybg' 'qt6-base')
-optdepends=('hyprpaper: alternative backend on Hyprland' 'wallust: color scheme generation')
+license=('GPL-3.0-or-later')
+depends=('swaybg' 'qt6-base' 'qt6-multimedia')
+optdepends=('hyprpaper: alternative backend on Hyprland'
+            'swww: efficient animated/GIF wallpapers on Wayland'
+            'mpvpaper: video wallpapers on Wayland'
+            'wallust: color scheme generation')
 makedepends=('cmake' 'gcc' 'make')
 
 build() {

@@ -1,3 +1,13 @@
+/*
+ * archpaper - Wallpaper manager for Wayland
+ * Copyright (C) 2024  archpaper contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,16 +23,16 @@
 static void print_usage(const char *name) {
     printf("Usage: %s <command> [options]\n\n", name);
     printf("Commands:\n");
-    printf("  set <image> [--mode MODE]       Set a static wallpaper.\n");
+    printf("  set <media> [--mode MODE]       Set a wallpaper (image/video/GIF).\n");
     printf("  clear                           Remove the current wallpaper.\n");
-    printf("  random <directory> [--mode MODE]  Pick a random image.\n");
+    printf("  random <directory> [--mode MODE]  Pick a random image/video.\n");
     printf("  daemon <directory> --interval <s> [--mode MODE]\n");
     printf("                                  Change the wallpaper periodically.\n");
     printf("  status                          Show the current status.\n");
     printf("  backend                         Show detected and active backend.\n");
     printf("\nModes (swaybg): fill, fit, stretch, center, tile\n");
     printf("Global options:\n");
-    printf("  --backend <swaybg|hyprpaper>    Force a specific backend.\n");
+    printf("  --backend <swaybg|hyprpaper|swww|mpvpaper>  Force a specific backend.\n");
     printf("  --mode <MODE>                   Image scaling mode.\n");
     printf("  --wallust                       Run 'wallust run' after applying.\n");
     printf("  --wallust-hook <script>         Script to run after wallust.\n");

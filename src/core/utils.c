@@ -1,5 +1,16 @@
+/*
+ * archpaper - Wallpaper manager for Wayland
+ * Copyright (C) 2024  archpaper contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
 #include "archpaper/utils.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -40,18 +51,43 @@ int is_dir(const char *path) {
     return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-int is_image(const char *path) {
-    if (!path) return 0;
-    static const char *exts[] = {
-        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif", ".gif", NULL
-    };
-    size_t len = strlen(path);
+const char *file_extension(const char *path) {
+    if (!path) return "";
+    const char *dot = strrchr(path, '.');
+    if (!dot || dot == path || strchr(dot, '/')) return "";
+    return dot + 1;
+}
+
+static int has_extension(const char *path, const char *exts[]) {
+    const char *ext = file_extension(path);
+    size_t len = strlen(ext);
     for (int i = 0; exts[i]; i++) {
         size_t elen = strlen(exts[i]);
-        if (len >= elen && strcasecmp(path + len - elen, exts[i]) == 0)
+        if (len == elen && strcasecmp(ext, exts[i]) == 0)
             return 1;
     }
     return 0;
+}
+
+int is_image(const char *path) {
+    static const char *exts[] = {
+        "jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif", "gif", NULL
+    };
+    return has_extension(path, exts);
+}
+
+int is_video(const char *path) {
+    static const char *exts[] = {
+        "mp4", "webm", "mkv", "mov", "avi", "ogv", NULL
+    };
+    return has_extension(path, exts);
+}
+
+int is_animated_image(const char *path) {
+    static const char *exts[] = {
+        "gif", "webp", NULL
+    };
+    return has_extension(path, exts);
 }
 
 char *random_image(const char *dir) {
@@ -67,7 +103,7 @@ char *random_image(const char *dir) {
 
         char full[4096];
         snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
-        if (is_image(full)) {
+        if (is_image(full) || is_video(full)) {
             char **tmp = realloc(files, (count + 1) * sizeof(char *));
             if (!tmp) break;
             files = tmp;

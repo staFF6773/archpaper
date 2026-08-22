@@ -4,14 +4,19 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 
 ## Features
 
-- **Qt6 GUI** with a three-panel layout:
-  - Favorite folders on the left.
-  - Thumbnails of the selected directory in the center.
-  - Large preview and controls on the right.
-- **Quick filter** by file name.
+- **Qt6 GUI** inspired by Wallpaper Engine:
+  - Dark sidebar with quick sections: Home, Favorites, Recent and Settings.
+  - Top bar with title, search and backend/mode selectors.
+  - Folder panel with your favorite wallpaper directories.
+  - Responsive thumbnail grid with rounded cards and file names.
+  - Hero preview panel with image info, favorite toggle and apply controls.
+- **Quick filter** by file name across the current section.
 - **Double click** to apply a wallpaper directly.
-- Backends **swaybg** (universal Wayland) and **hyprpaper** (Hyprland).
-- Automatic backend detection on Hyprland.
+- **Favorites** and **Recent** wallpapers tracked automatically.
+- Backends **swaybg** (universal Wayland), **hyprpaper** (Hyprland), **swww** (efficient animated/GIF wallpapers) and **mpvpaper** (video wallpapers).
+- Automatic backend detection: prefers **swww** when available because it is the most efficient for animated and static wallpapers on Wayland.
+- Animated wallpaper support: GIF/WebP/MP4/WebM/MKV/MOV with automatic backend selection.
+- Optimized preview: only the selected wallpaper plays animation; it stops when switching to another item.
 - Daemon mode for automatic wallpaper changes by interval.
 - Persistent configuration in `~/.config/archpaper/config`.
 
@@ -20,12 +25,15 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 ```text
 swaybg
 qt6-base
+qt6-multimedia
 ```
 
 Optional:
 
 ```text
 hyprpaper
+swww      # efficient animated/GIF wallpapers on Wayland
+mpvpaper  # video wallpapers on Wayland
 wallust
 ```
 
@@ -64,21 +72,42 @@ archpaper
 ```
 
 In the window:
-- Select a folder from the list (or add a new one).
-- Click a thumbnail to see the preview.
+- Use the **sidebar** to switch between Home, Favorites, Recent and Settings.
+- Select a folder from the folder panel (or add/remove folders).
+- Click a thumbnail to see the preview in the right panel.
 - Double-click or press **Apply** to set the wallpaper.
 - Use the search box to filter by name.
-- Enable the daemon for automatic changes.
+- Press the star button to add/remove wallpapers from Favorites.
+- Open Settings to configure the backend, mode, wallust and the daemon.
 
 ### CLI
 
 ```bash
-archpaper set <image> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper] [--wallust] [--wallust-hook <script>]
+archpaper set <image|video|gif> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper|swww|mpvpaper] [--wallust] [--wallust-hook <script>]
 archpaper random <directory> [--wallust] [--wallust-hook <script>]
 archpaper daemon <directory> --interval <seconds> [--wallust] [--wallust-hook <script>]
 archpaper clear
 archpaper status
 archpaper backend
+```
+
+## Animated wallpapers
+
+`archpaper` supports GIF, animated WebP, MP4, WebM, MKV, MOV and AVI files.
+
+- **swww** is the preferred backend for animated images (GIF/WebP) and static images on Wayland; it is lightweight and fast.
+- **mpvpaper** is used for video files (MP4/WebM/MKV/MOV/AVI).
+
+If you select a backend such as `swaybg` or `hyprpaper` and apply an animated file, `archpaper` automatically switches to a compatible backend when available. The GUI previews the animation only for the selected item and stops it when you select another wallpaper, keeping CPU/GPU usage low.
+
+To use animated wallpapers with the CLI:
+
+```bash
+# Requires swww-daemon running for swww
+archpaper set ~/Wallpapers/animation.gif --backend swww
+
+# Requires mpvpaper for video
+archpaper set ~/Wallpapers/video.mp4 --backend mpvpaper
 ```
 
 ## Wallust integration
@@ -113,8 +142,13 @@ makoctl reload 2>/dev/null
 
 ### GUI configuration
 
+The Settings section (gear icon in the sidebar) contains:
+- **Backend** and **Mode** selectors in the top bar.
 - **Checkbox** *Generate scheme with wallust* enables wallust on every wallpaper change.
 - **Hook:** optional extra script to run after wallust. If left empty, only `wallust run` is executed and your `wallust.toml` handles the rest.
+- **Daemon** controls for automatic wallpaper changes by interval.
+
+Favorites and recent wallpapers are stored in `~/.config/archpaper/favorites` and `~/.config/archpaper/recent`.
 
 ## Composer integration
 
@@ -137,8 +171,15 @@ include/archpaper/  # Public core API in C
 src/core/           # Core: backend, config, daemon, utils, wallust
 src/cli/            # CLI entry point
 src/gui/            # Qt6 GUI
+  components/       # Reusable UI widgets
+  models/           # (future) data models
+  delegates/        # (future) item delegates
+  services/         # (future) config/thumbnail services
+  theme/            # QSS stylesheet and resource file
 ```
 
 ## License
 
-MIT
+This program is free software: you can redistribute it and/or modify
+it under the terms of the **GNU General Public License v3.0** or later.
+See the [LICENSE](LICENSE) file for the full text.

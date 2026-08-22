@@ -1,0 +1,226 @@
+QMainWindow, QWidget {
+    background-color: #0d1117;
+    color: #c9d1d9;
+    font-family: 'Inter', 'Segoe UI', 'Noto Sans', 'Cantarell', sans-serif;
+    font-size: 13px;
+}
+
+#navSidebar {
+    background-color: #11161d;
+    border-right: 1px solid #21262d;
+}
+
+#previewPanel, #foldersPanel, #topBar, #statusBar {
+    background-color: #11161d;
+    border: 1px solid #21262d;
+    border-radius: 12px;
+}
+
+#foldersPanel {
+    border-right: 1px solid #21262d;
+    border-radius: 12px;
+}
+
+QToolButton[navButton="true"] {
+    background-color: transparent;
+    color: #8b949e;
+    border: none;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 18px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 44px;
+    max-height: 44px;
+}
+
+QToolButton[navButton="true"]:hover {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+
+QToolButton[navButton="true"]:checked {
+    background-color: #1f6feb;
+    color: #ffffff;
+}
+
+#foldersList, #imagesList {
+    background-color: transparent;
+    border: none;
+    outline: none;
+    padding: 8px;
+}
+
+#imagesList::item {
+    background-color: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 12px;
+    padding: 8px;
+    margin: 6px;
+    color: #c9d1d9;
+}
+
+#imagesList::item:selected {
+    background-color: #1f6feb;
+    border: 1px solid #58a6ff;
+    color: #ffffff;
+}
+
+#imagesList::item:hover:!selected {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+}
+
+#searchEdit, QLineEdit {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 8px 12px;
+    color: #c9d1d9;
+    min-height: 28px;
+}
+
+#searchEdit:focus, QLineEdit:focus {
+    border: 1px solid #58a6ff;
+}
+
+QComboBox, QSpinBox {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #c9d1d9;
+    min-height: 26px;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    selection-background-color: #1f6feb;
+}
+
+QPushButton {
+    background-color: #1f6feb;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+    min-height: 32px;
+}
+
+QPushButton:hover {
+    background-color: #388bfd;
+}
+
+QPushButton:pressed {
+    background-color: #1158c7;
+}
+
+QPushButton:disabled {
+    background-color: #21262d;
+    color: #8b949e;
+}
+
+QPushButton#secondaryButton {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+
+QPushButton#secondaryButton:hover {
+    background-color: #30363d;
+}
+
+QPushButton#dangerButton {
+    background-color: #da3633;
+}
+
+QPushButton#dangerButton:hover {
+    background-color: #f85149;
+}
+
+QPushButton:checked {
+    background-color: #238636;
+}
+
+QCheckBox {
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1px solid #30363d;
+    background-color: #161b22;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #1f6feb;
+    border: 1px solid #58a6ff;
+}
+
+QGroupBox#settingsGroup {
+    background-color: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    padding-bottom: 8px;
+    padding-left: 12px;
+    padding-right: 12px;
+    font-weight: 700;
+    color: #c9d1d9;
+}
+
+QGroupBox#settingsGroup::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 8px;
+}
+
+QSplitter::handle {
+    background: #21262d;
+    border-radius: 2px;
+}
+
+QSplitter::handle:horizontal {
+    width: 4px;
+    margin: 4px 2px;
+}
+
+#statusLabel {
+    color: #8b949e;
+    font-size: 12px;
+}
+
+#mutedLabel {
+    color: #8b949e;
+}
+
+#panelHeader {
+    color: #f0f6fc;
+    font-weight: 700;
+}
+
+#previewImage {
+    background-color: #0d1117;
+    color: #8b949e;
+    border: 1px dashed #30363d;
+    border-radius: 16px;
+}
+
+#previewVideo {
+    background-color: #0d1117;
+    border-radius: 16px;
+}
+
+#infoLabel {
+    color: #8b949e;
+    font-size: 12px;
+}

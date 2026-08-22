@@ -1,3 +1,13 @@
+/*
+ * archpaper - Wallpaper manager for Wayland
+ * Copyright (C) 2024  archpaper contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
 #include "archpaper/config.h"
 #include "archpaper/utils.h"
 
@@ -37,6 +47,7 @@ void config_default(config_t *cfg) {
     cfg->folder_count = 0;
     cfg->wallust_enabled = 0;
     cfg->wallust_hook[0] = '\0';
+    cfg->daemon_interval = 300;
 }
 
 static int ensure_dir(const char *path) {
@@ -91,6 +102,9 @@ int config_load(config_t *cfg) {
                 cfg->wallust_hook[sizeof(cfg->wallust_hook) - 1] = '\0';
                 free(expanded);
             }
+        } else if (strncmp(line, "daemon_interval=", 16) == 0) {
+            cfg->daemon_interval = atoi(line + 16);
+            if (cfg->daemon_interval <= 0) cfg->daemon_interval = 300;
         }
     }
     fclose(f);
@@ -107,6 +121,7 @@ int config_save(const config_t *cfg) {
     fprintf(f, "mode=%s\n", cfg->mode);
     fprintf(f, "wallust=%s\n", cfg->wallust_enabled ? "true" : "false");
     fprintf(f, "wallust_hook=%s\n", cfg->wallust_hook);
+    fprintf(f, "daemon_interval=%d\n", cfg->daemon_interval > 0 ? cfg->daemon_interval : 300);
     fprintf(f, "last=%s\n", cfg->last_wallpaper);
 
     for (int i = 0; i < cfg->folder_count; i++) {
