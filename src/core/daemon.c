@@ -1,0 +1,72 @@
+#include "archpaper/daemon.h"
+#include "archpaper/backend.h"
+#include "archpaper/utils.h"
+#include "archpaper/wallust.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
+
+#define PID_FILE "/tmp/archpaper.pid"
+
+static volatile sig_atomic_t running = 1;
+
+static void handle_signal(int sig) {
+    (void)sig;
+    running = 0;
+}
+
+static void write_pid(void) {
+    FILE *f = fopen(PID_FILE, "w");
+    if (f) {
+        fprintf(f, "%d\n", getpid());
+        fclose(f);
+    }
+}
+
+static void clear_pid(void) {
+    unlink(PID_FILE);
+}
+
+int daemonize_random(const char *dir, int interval, backend_t b, const char *mode,
+                      int enable_wallust, const char *wallust_hook) {
+    pid_t pid = fork();
+    if (pid < 0) return 1;
+    if (pid > 0) return 0; /* El padre termina inmediatamente. */
+
+    if (setsid() < 0) return 1;
+
+    write_pid();
+
+    /* Evita procesos zombie dejados por set_wallpaper() y wallust_run(). */
+    signal(SIGCHLD, SIG_IGN);
+    signal(SIGTERM, handle_signal);
+    signal(SIGINT, handle_signal);
+
+    /* Desviar stdin/stdout/stderr para no bloquear la terminal. */
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    if (interval <= 0) interval = 300;
+
+    while (running) {
+        char *img = random_image(dir);
+        if (img) {
+            set_wallpaper(b, img, mode);
+            if (enable_wallust) {
+                if (wallust_available()) {
+                    wallust_run(img);
+                }
+                wallust_hook_run(wallust_hook, img);
+            }
+            free(img);
+        }
+        sleep((unsigned)interval);
+    }
+
+    clear_pid();
+    return 0;
+}
