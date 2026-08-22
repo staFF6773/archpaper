@@ -12,6 +12,7 @@
 #define MARKETSERVICE_H
 
 #include "marketitem.h"
+#include "marketsearchoptions.h"
 
 #include <QFile>
 #include <QHash>
@@ -40,7 +41,7 @@ public:
     void setWallhavenApiKey(const QString &apiKey);
     void setWallhavenPurity(const QString &purity);
 
-    void search(const QString &query, const QString &source, int page);
+    void search(const MarketSearchOptions &options);
     void loadThumbnail(const QString &url);
     void download(const MarketItem &item, const QString &downloadDir, bool applyAfter = false);
     void cancelDownload(const QString &id);

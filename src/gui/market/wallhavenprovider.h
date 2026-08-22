@@ -23,6 +23,10 @@ public:
 
     void setApiKey(const QString &apiKey);
     void setPurity(const QString &purity);
+    void setSorting(const QString &sorting);
+    void setTopRange(const QString &topRange);
+    void setResolution(const QString &resolution);
+    void setRatio(const QString &ratio);
 
 public slots:
     void search(const QString &query, int page) override;
@@ -33,10 +37,15 @@ private slots:
 private:
     QString m_apiKey;
     QString m_purity = QStringLiteral("sfw");
+    QString m_sorting;
+    QString m_topRange;
+    QString m_resolution;
+    QString m_ratio;
     QNetworkReply *m_reply = nullptr;
 
     static QNetworkRequest createRequest(const QUrl &url);
     QString purityCode() const;
+    QString sortingValue() const;
 };
 
 #endif // WALLHAVENPROVIDER_H

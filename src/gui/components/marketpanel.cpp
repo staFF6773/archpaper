@@ -17,18 +17,28 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QVBoxLayout>
+
+namespace {
+
+constexpr int SEARCH_DEBOUNCE_MS = 400;
+
+} // namespace
 
 MarketPanel::MarketPanel(QWidget *parent)
     : QFrame(parent) {
     setupUi();
+    restoreDefaultFilters();
 }
 
 void MarketPanel::setupUi() {
@@ -40,23 +50,25 @@ void MarketPanel::setupUi() {
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(12);
 
-    /* Top controls */
+    /* Controls bar */
     auto *topBar = new QFrame;
     topBar->setObjectName(QStringLiteral("topBar"));
-    auto *topBarLayout = new QHBoxLayout(topBar);
+    auto *topBarLayout = new QVBoxLayout(topBar);
     topBarLayout->setContentsMargins(10, 8, 10, 8);
     topBarLayout->setSpacing(10);
 
+    /* Row 1: search + source + quick actions */
+    auto *row1 = new QHBoxLayout;
+    row1->setSpacing(10);
+
     m_searchEdit = new QLineEdit;
     m_searchEdit->setObjectName(QStringLiteral("searchEdit"));
-    m_searchEdit->setPlaceholderText(QStringLiteral("Search wallpapers..."));
+    m_searchEdit->setPlaceholderText(QStringLiteral("Type to search wallpapers..."));
     m_searchEdit->setClearButtonEnabled(true);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, &MarketPanel::onSearch);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &MarketPanel::onSearchTextChanged);
 
-    topBarLayout->addWidget(new QLabel(QStringLiteral("Search:")), 0);
-    topBarLayout->addWidget(m_searchEdit, 1);
-
-    auto *sourceLabel = new QLabel(QStringLiteral("Source:"));
+    auto *sourceLabel = new QLabel(QStringLiteral("Source"));
     sourceLabel->setObjectName(QStringLiteral("mutedLabel"));
     m_sourceCombo = new QComboBox;
     m_sourceCombo->addItem(QStringLiteral("All"), QStringLiteral("all"));
@@ -65,28 +77,104 @@ void MarketPanel::setupUi() {
     connect(m_sourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MarketPanel::onSourceChanged);
 
-    auto *purityLabel = new QLabel(QStringLiteral("Purity:"));
-    purityLabel->setObjectName(QStringLiteral("mutedLabel"));
-    m_purityCombo = new QComboBox;
-    m_purityCombo->addItem(QStringLiteral("SFW"), QStringLiteral("sfw"));
-    m_purityCombo->addItem(QStringLiteral("Sketchy"), QStringLiteral("sketchy"));
-    m_purityCombo->addItem(QStringLiteral("NSFW"), QStringLiteral("nsfw"));
-    m_purityCombo->addItem(QStringLiteral("All"), QStringLiteral("all"));
-
     m_searchButton = new QPushButton(QStringLiteral("Search"));
+    m_searchButton->setToolTip(QStringLiteral("Search now"));
     connect(m_searchButton, &QPushButton::clicked, this, &MarketPanel::onSearch);
 
-    topBarLayout->addWidget(sourceLabel);
-    topBarLayout->addWidget(m_sourceCombo);
-    topBarLayout->addWidget(purityLabel);
-    topBarLayout->addWidget(m_purityCombo);
-    topBarLayout->addWidget(m_searchButton);
+    m_resetButton = new QPushButton(QStringLiteral("Reset"));
+    m_resetButton->setObjectName(QStringLiteral("secondaryButton"));
+    m_resetButton->setToolTip(QStringLiteral("Reset filters"));
+    connect(m_resetButton, &QPushButton::clicked, this, &MarketPanel::onResetFilters);
 
     m_loadMoreButton = new QPushButton(QStringLiteral("Load more"));
     m_loadMoreButton->setObjectName(QStringLiteral("secondaryButton"));
     m_loadMoreButton->setVisible(false);
     connect(m_loadMoreButton, &QPushButton::clicked, this, &MarketPanel::onLoadMore);
-    topBarLayout->addWidget(m_loadMoreButton);
+
+    row1->addWidget(new QLabel(QStringLiteral("Search")), 0);
+    row1->addWidget(m_searchEdit, 1);
+    row1->addWidget(sourceLabel, 0);
+    row1->addWidget(m_sourceCombo);
+    row1->addWidget(m_searchButton);
+    row1->addWidget(m_resetButton);
+    row1->addWidget(m_loadMoreButton);
+
+    /* Row 2: filters */
+    auto *row2 = new QHBoxLayout;
+    row2->setSpacing(10);
+
+    m_sortCombo = new QComboBox;
+    m_sortCombo->addItem(QStringLiteral("Latest"), QStringLiteral("latest"));
+    m_sortCombo->addItem(QStringLiteral("Best match"), QStringLiteral("relevance"));
+    m_sortCombo->addItem(QStringLiteral("Random"), QStringLiteral("random"));
+    m_sortCombo->addItem(QStringLiteral("Most viewed"), QStringLiteral("views"));
+    m_sortCombo->addItem(QStringLiteral("Most favorited"), QStringLiteral("favorites"));
+    m_sortCombo->addItem(QStringLiteral("Top list"), QStringLiteral("toplist"));
+    connect(m_sortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MarketPanel::onFiltersChanged);
+
+    m_topRangeCombo = new QComboBox;
+    m_topRangeCombo->addItem(QStringLiteral("1 day"), QStringLiteral("1d"));
+    m_topRangeCombo->addItem(QStringLiteral("3 days"), QStringLiteral("3d"));
+    m_topRangeCombo->addItem(QStringLiteral("1 week"), QStringLiteral("1w"));
+    m_topRangeCombo->addItem(QStringLiteral("1 month"), QStringLiteral("1M"));
+    m_topRangeCombo->addItem(QStringLiteral("3 months"), QStringLiteral("3M"));
+    m_topRangeCombo->addItem(QStringLiteral("6 months"), QStringLiteral("6M"));
+    m_topRangeCombo->addItem(QStringLiteral("1 year"), QStringLiteral("1y"));
+    m_topRangeCombo->setEnabled(false);
+    connect(m_topRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MarketPanel::onFiltersChanged);
+
+    m_purityCombo = new QComboBox;
+    m_purityCombo->addItem(QStringLiteral("SFW"), QStringLiteral("sfw"));
+    m_purityCombo->addItem(QStringLiteral("Sketchy"), QStringLiteral("sketchy"));
+    m_purityCombo->addItem(QStringLiteral("NSFW"), QStringLiteral("nsfw"));
+    m_purityCombo->addItem(QStringLiteral("All"), QStringLiteral("all"));
+    connect(m_purityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MarketPanel::onFiltersChanged);
+
+    m_resolutionCombo = new QComboBox;
+    m_resolutionCombo->setEditable(true);
+    m_resolutionCombo->setInsertPolicy(QComboBox::NoInsert);
+    m_resolutionCombo->addItem(QStringLiteral("Any resolution"), QString());
+    m_resolutionCombo->addItem(QStringLiteral("1920x1080"), QStringLiteral("1920x1080"));
+    m_resolutionCombo->addItem(QStringLiteral("2560x1440"), QStringLiteral("2560x1440"));
+    m_resolutionCombo->addItem(QStringLiteral("3840x2160"), QStringLiteral("3840x2160"));
+    m_resolutionCombo->addItem(QStringLiteral("1280x720"), QStringLiteral("1280x720"));
+    m_resolutionCombo->addItem(QStringLiteral("3440x1440"), QStringLiteral("3440x1440"));
+    m_resolutionCombo->addItem(QStringLiteral("2560x1080"), QStringLiteral("2560x1080"));
+    m_resolutionCombo->setCurrentIndex(0);
+    connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MarketPanel::onFiltersChanged);
+    connect(m_resolutionCombo->lineEdit(), &QLineEdit::editingFinished,
+            this, &MarketPanel::onFiltersChanged);
+
+    m_ratioCombo = new QComboBox;
+    m_ratioCombo->addItem(QStringLiteral("Any ratio"), QString());
+    m_ratioCombo->addItem(QStringLiteral("16:9"), QStringLiteral("16x9"));
+    m_ratioCombo->addItem(QStringLiteral("21:9"), QStringLiteral("21x9"));
+    m_ratioCombo->addItem(QStringLiteral("4:3"), QStringLiteral("4x3"));
+    m_ratioCombo->addItem(QStringLiteral("3:2"), QStringLiteral("3x2"));
+    m_ratioCombo->addItem(QStringLiteral("1:1"), QStringLiteral("1x1"));
+    m_ratioCombo->addItem(QStringLiteral("9:16"), QStringLiteral("9x16"));
+    m_ratioCombo->addItem(QStringLiteral("16:10"), QStringLiteral("16x10"));
+    connect(m_ratioCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MarketPanel::onFiltersChanged);
+
+    row2->addWidget(new QLabel(QStringLiteral("Sort")));
+    row2->addWidget(m_sortCombo);
+    row2->addWidget(new QLabel(QStringLiteral("Top range")));
+    row2->addWidget(m_topRangeCombo);
+    row2->addWidget(new QLabel(QStringLiteral("Purity")));
+    row2->addWidget(m_purityCombo);
+    row2->addWidget(new QLabel(QStringLiteral("Resolution")));
+    row2->addWidget(m_resolutionCombo);
+    row2->addWidget(new QLabel(QStringLiteral("Ratio")));
+    row2->addWidget(m_ratioCombo);
+    row2->addStretch(1);
+
+    topBarLayout->addLayout(row1);
+    topBarLayout->addLayout(row2);
 
     /* Progress / status */
     auto *statusLayout = new QHBoxLayout;
@@ -152,6 +240,10 @@ void MarketPanel::setupUi() {
             this, &MarketPanel::onDownloadFinished);
     connect(m_service, &MarketService::downloadError,
             this, &MarketPanel::onDownloadError);
+
+    m_searchDebounceTimer = new QTimer(this);
+    m_searchDebounceTimer->setSingleShot(true);
+    connect(m_searchDebounceTimer, &QTimer::timeout, this, &MarketPanel::onSearch);
 }
 
 void MarketPanel::setDownloadDir(const QString &dir) {
@@ -177,6 +269,29 @@ void MarketPanel::onSourceChanged(int index) {
     QString source = m_sourceCombo->currentData().toString();
     bool wallhavenEnabled = (source == QLatin1String("all") || source == QLatin1String("wallhaven"));
     m_purityCombo->setEnabled(wallhavenEnabled);
+    m_sortCombo->setEnabled(wallhavenEnabled);
+    m_topRangeCombo->setEnabled(wallhavenEnabled && m_sortCombo->currentData().toString() == QLatin1String("toplist"));
+    m_resolutionCombo->setEnabled(wallhavenEnabled);
+    m_ratioCombo->setEnabled(wallhavenEnabled);
+
+    if (!m_searchEdit->text().isEmpty())
+        performSearch(1);
+}
+
+void MarketPanel::onSearchTextChanged() {
+    m_searchDebounceTimer->stop();
+    m_searchDebounceTimer->start(SEARCH_DEBOUNCE_MS);
+}
+
+void MarketPanel::onFiltersChanged() {
+    QString sort = m_sortCombo->currentData().toString();
+    bool isToplist = (sort == QLatin1String("toplist"));
+    QString source = m_sourceCombo->currentData().toString();
+    bool wallhavenEnabled = (source == QLatin1String("all") || source == QLatin1String("wallhaven"));
+    m_topRangeCombo->setEnabled(wallhavenEnabled && isToplist);
+
+    m_searchDebounceTimer->stop();
+    m_searchDebounceTimer->start(SEARCH_DEBOUNCE_MS);
 }
 
 void MarketPanel::onSearch() {
@@ -188,20 +303,56 @@ void MarketPanel::onLoadMore() {
         performSearch(m_currentPage + 1);
 }
 
-void MarketPanel::performSearch(int page) {
-    QString query = m_searchEdit->text();
-    QString source = m_sourceCombo->currentData().toString();
-    QString purity = m_purityCombo->currentData().toString();
+void MarketPanel::onResetFilters() {
+    restoreDefaultFilters();
+    performSearch(1);
+}
 
-    m_service->setWallhavenPurity(purity);
-    m_currentQuery = query;
-    m_currentSource = source;
+void MarketPanel::restoreDefaultFilters() {
+    m_searchEdit->clear();
+    m_sourceCombo->setCurrentIndex(0);
+    m_sortCombo->setCurrentIndex(0);
+    m_topRangeCombo->setCurrentIndex(3); // 1 month
+    m_purityCombo->setCurrentIndex(0);
+    m_resolutionCombo->setCurrentIndex(0);
+    m_ratioCombo->setCurrentIndex(0);
+    onSourceChanged(0);
+}
+
+MarketSearchOptions MarketPanel::buildOptions() {
+    MarketSearchOptions options;
+    options.query = m_searchEdit->text().trimmed();
+    options.source = m_sourceCombo->currentData().toString();
+    options.page = m_currentPage;
+    options.sorting = m_sortCombo->currentData().toString();
+    options.topRange = m_topRangeCombo->currentData().toString();
+
+    if (m_resolutionCombo->currentData().isValid())
+        options.resolution = m_resolutionCombo->currentData().toString();
+    if (options.resolution.isEmpty() && m_resolutionCombo->isEditable())
+        options.resolution = m_resolutionCombo->currentText().trimmed();
+    // Keep only valid-looking resolution text
+    static const QRegularExpression resolutionRe(QStringLiteral("^\\d+x\\d+$"));
+    if (!resolutionRe.match(options.resolution).hasMatch())
+        options.resolution.clear();
+
+    options.ratio = m_ratioCombo->currentData().toString();
+    return options;
+}
+
+void MarketPanel::performSearch(int page) {
+    MarketSearchOptions options = buildOptions();
+    m_currentQuery = options.query;
+    m_currentSource = options.source;
     m_currentPage = page;
+    options.page = page;
+
+    m_service->setWallhavenPurity(m_purityCombo->currentData().toString());
 
     if (page == 1)
         m_grid->clear();
 
-    m_service->search(query, source, page);
+    m_service->search(options);
 }
 
 void MarketPanel::onItemSelected(const MarketItem &item) {
@@ -233,7 +384,10 @@ void MarketPanel::onResultsReady(const QList<MarketItem> &items, int totalPages)
     else
         m_grid->appendItems(items);
 
-    m_statusLabel->setText(QStringLiteral("%1 results").arg(m_grid->count()));
+    m_statusLabel->setText(QStringLiteral("%1 results, page %2/%3")
+                               .arg(m_grid->count())
+                               .arg(m_currentPage)
+                               .arg(m_totalPages));
     updateLoadMore();
 }
 

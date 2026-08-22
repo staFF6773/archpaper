@@ -21,7 +21,10 @@ class QLineEdit;
 class QPushButton;
 class QLabel;
 class QProgressBar;
+class QTimer;
 QT_END_NAMESPACE
+
+#include "../market/marketsearchoptions.h"
 
 class MarketGrid;
 class MarketPreviewPanel;
@@ -49,11 +52,14 @@ private slots:
     void onSourceChanged(int index);
     void onItemSelected(const MarketItem &item);
     void onItemDoubleClicked(const MarketItem &item);
+    void onSearchTextChanged();
+    void onFiltersChanged();
     void onThumbnailNeeded(const QString &url);
     void onThumbnailLoaded(const QString &url, const QPixmap &pixmap);
     void onResultsReady(const QList<MarketItem> &items, int totalPages);
     void onSearchError(const QString &message);
     void onDownloadRequested(bool applyAfter);
+    void onResetFilters();
     void onDownloadStarted(const QString &id);
     void onDownloadProgress(const QString &id, qint64 received, qint64 total);
     void onDownloadFinished(const QString &id, const QString &filePath, const MarketItem &item, bool applyAfter);
@@ -63,6 +69,8 @@ private:
     void setupUi();
     void performSearch(int page);
     void updateLoadMore();
+    void restoreDefaultFilters();
+    MarketSearchOptions buildOptions();
 
     MarketService *m_service;
     MarketGrid *m_grid;
@@ -71,10 +79,16 @@ private:
     QLineEdit *m_searchEdit;
     QComboBox *m_sourceCombo;
     QComboBox *m_purityCombo;
+    QComboBox *m_sortCombo;
+    QComboBox *m_topRangeCombo;
+    QComboBox *m_resolutionCombo;
+    QComboBox *m_ratioCombo;
     QPushButton *m_searchButton;
     QPushButton *m_loadMoreButton;
+    QPushButton *m_resetButton;
     QLabel *m_statusLabel;
     QProgressBar *m_progressBar;
+    QTimer *m_searchDebounceTimer;
 
     QString m_downloadDir;
     QString m_currentQuery;

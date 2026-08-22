@@ -34,6 +34,22 @@ void WallhavenProvider::setPurity(const QString &purity) {
     if (m_purity.isEmpty()) m_purity = QStringLiteral("sfw");
 }
 
+void WallhavenProvider::setSorting(const QString &sorting) {
+    m_sorting = sorting.trimmed().toLower();
+}
+
+void WallhavenProvider::setTopRange(const QString &topRange) {
+    m_topRange = topRange;
+}
+
+void WallhavenProvider::setResolution(const QString &resolution) {
+    m_resolution = resolution.trimmed();
+}
+
+void WallhavenProvider::setRatio(const QString &ratio) {
+    m_ratio = ratio.trimmed();
+}
+
 QNetworkRequest WallhavenProvider::createRequest(const QUrl &url) {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader, USER_AGENT);
@@ -49,6 +65,15 @@ QString WallhavenProvider::purityCode() const {
     return QStringLiteral("100"); // sfw default
 }
 
+QString WallhavenProvider::sortingValue() const {
+    if (m_sorting == QLatin1String("relevance")) return QStringLiteral("relevance");
+    if (m_sorting == QLatin1String("random")) return QStringLiteral("random");
+    if (m_sorting == QLatin1String("views")) return QStringLiteral("views");
+    if (m_sorting == QLatin1String("favorites")) return QStringLiteral("favorites");
+    if (m_sorting == QLatin1String("toplist")) return QStringLiteral("toplist");
+    return QStringLiteral("date_added"); // latest default
+}
+
 void WallhavenProvider::search(const QString &query, int page) {
     if (m_reply) {
         m_reply->abort();
@@ -62,10 +87,15 @@ void WallhavenProvider::search(const QString &query, int page) {
     q.addQueryItem(QStringLiteral("page"), QString::number(qMax(1, page)));
     q.addQueryItem(QStringLiteral("purity"), purityCode());
     q.addQueryItem(QStringLiteral("categories"), QStringLiteral("111"));
-    if (query.trimmed().isEmpty()) {
-        q.addQueryItem(QStringLiteral("sorting"), QStringLiteral("date_added"));
-    } else {
-        q.addQueryItem(QStringLiteral("sorting"), QStringLiteral("relevance"));
+    q.addQueryItem(QStringLiteral("sorting"), sortingValue());
+    if (m_sorting == QLatin1String("toplist") && !m_topRange.isEmpty()) {
+        q.addQueryItem(QStringLiteral("topRange"), m_topRange);
+    }
+    if (!m_resolution.isEmpty()) {
+        q.addQueryItem(QStringLiteral("resolutions"), m_resolution);
+    }
+    if (!m_ratio.isEmpty()) {
+        q.addQueryItem(QStringLiteral("ratios"), m_ratio);
     }
     if (!m_apiKey.isEmpty()) {
         q.addQueryItem(QStringLiteral("apikey"), m_apiKey);

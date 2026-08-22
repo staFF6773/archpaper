@@ -134,23 +134,28 @@ QNetworkRequest MarketService::makeRequest(const QUrl &url) const {
     return req;
 }
 
-void MarketService::search(const QString &query, const QString &source, int page) {
+void MarketService::search(const MarketSearchOptions &options) {
     m_collectedResults.clear();
     m_errors.clear();
     m_totalPagesWallhaven = 1;
     m_totalPagesMoeWalls = 1;
     m_pendingProviders = 0;
 
-    QString s = source.toLower();
+    QString s = options.source.toLower();
     bool all = (s == QLatin1String("all"));
+
+    m_wallhaven->setSorting(options.sorting);
+    m_wallhaven->setTopRange(options.topRange);
+    m_wallhaven->setResolution(options.resolution);
+    m_wallhaven->setRatio(options.ratio);
 
     if (all || s == QLatin1String("wallhaven")) {
         m_pendingProviders++;
-        m_wallhaven->search(query, page);
+        m_wallhaven->search(options.query, options.page);
     }
     if (all || s == QLatin1String("moewalls")) {
         m_pendingProviders++;
-        m_moewalls->search(query, page);
+        m_moewalls->search(options.query, options.page);
     }
 
     if (m_pendingProviders > 0)
