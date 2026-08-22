@@ -64,7 +64,7 @@ int config_load(config_t *cfg) {
     config_default(cfg);
 
     FILE *f = fopen(config_file_path(), "r");
-    if (!f) return 0; /* No hay config aún; usar defaults. */
+    if (!f) return 0; /* No config yet; use defaults. */
 
     char line[8192];
     while (fgets(line, sizeof(line), f)) {
@@ -121,7 +121,7 @@ int config_add_folder(config_t *cfg, const char *path) {
     if (!path || !path[0]) return 1;
     if (cfg->folder_count >= MAX_FAVORITE_FOLDERS) return 1;
 
-    /* Evitar duplicados. */
+    /* Avoid duplicates. */
     for (int i = 0; i < cfg->folder_count; i++) {
         if (strcmp(cfg->folders[i], path) == 0) return 1;
     }

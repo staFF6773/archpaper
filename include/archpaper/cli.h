@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-/* Punto de entrada de la interfaz de línea de comandos. */
+/* Command-line interface entry point. */
 int archpaper_cli(int argc, char *argv[]);
 
 #ifdef __cplusplus

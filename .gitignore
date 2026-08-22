@@ -1,19 +1,16 @@
-# Directorio de compilación de CMake
+# CMake build directory
 /build/
 /src/build/
 
-# Directorios y artefactos de makepkg
+# makepkg directories and artifacts
 /pkg/
 *.pkg.tar.zst
 *.pkg.tar.xz
 
-# Configuración local de pruebas
-config
-
-# Archivos objeto/binarios antiguos (por si acaso)
+# Old object/binary files (just in case)
 *.o
 *.a
 /archpaper
 
-# Configuración local de pruebas
+# Local test configuration
 config

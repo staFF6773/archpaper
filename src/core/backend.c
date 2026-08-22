@@ -52,7 +52,7 @@ int backend_available(backend_t b) {
 }
 
 backend_t detect_backend(void) {
-    /* Si estamos en Hyprland y hyprpaper está disponible, preferirlo. */
+    /* If running under Hyprland and hyprpaper is available, prefer it. */
     if (getenv("HYPRLAND_INSTANCE_SIGNATURE") && backend_available(BACKEND_HYPRPAPER))
         return BACKEND_HYPRPAPER;
     return BACKEND_SWAYBG;
@@ -67,7 +67,7 @@ static int pkill_backend(const char *name) {
 static void kill_wallpaper_backends(void) {
     pkill_backend(SWAYBG_CMD);
     pkill_backend(HYPRPAPER_CMD);
-    usleep(100000); /* 100 ms para que liberen recursos */
+    usleep(100000); /* 100 ms to release resources */
 }
 
 static const char *map_swaybg_mode(const char *mode) {
@@ -84,17 +84,17 @@ static int run_fork(const char *argv[]) {
     pid_t pid = fork();
     if (pid < 0) return 1;
     if (pid > 0) {
-        /* Esperamos al hijo intermedio para que no quede como zombie. */
+        /* Wait for the intermediate child so it does not become a zombie. */
         waitpid(pid, NULL, 0);
         return 0;
     }
 
-    /* Hijo intermedio: segundo fork y salir. */
+    /* Intermediate child: double fork and exit. */
     pid_t pid2 = fork();
     if (pid2 < 0) _exit(1);
     if (pid2 > 0) _exit(0);
 
-    /* Nieto: adoptado por init, ejecuta el backend en segundo plano. */
+    /* Grandchild: adopted by init, runs the backend in the background. */
     setsid();
     close(STDIN_FILENO);
     close(STDOUT_FILENO);

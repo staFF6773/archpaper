@@ -34,18 +34,18 @@ int daemonize_random(const char *dir, int interval, backend_t b, const char *mod
                       int enable_wallust, const char *wallust_hook) {
     pid_t pid = fork();
     if (pid < 0) return 1;
-    if (pid > 0) return 0; /* El padre termina inmediatamente. */
+    if (pid > 0) return 0; /* Parent exits immediately. */
 
     if (setsid() < 0) return 1;
 
     write_pid();
 
-    /* Evita procesos zombie dejados por set_wallpaper() y wallust_run(). */
+    /* Avoid zombies left behind by set_wallpaper() and wallust_run(). */
     signal(SIGCHLD, SIG_IGN);
     signal(SIGTERM, handle_signal);
     signal(SIGINT, handle_signal);
 
-    /* Desviar stdin/stdout/stderr para no bloquear la terminal. */
+    /* Detach stdin/stdout/stderr so the daemon does not block the terminal. */
     close(STDIN_FILENO);
     close(STDOUT_FILENO);
     close(STDERR_FILENO);

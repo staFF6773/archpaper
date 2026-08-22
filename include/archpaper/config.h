@@ -16,19 +16,19 @@ typedef struct {
     char wallust_hook[4096];
 } config_t;
 
-/* Carga la config desde ~/.config/archpaper/config y aplica valores por defecto. */
+/* Load config from ~/.config/archpaper/config and apply defaults. */
 int config_load(config_t *cfg);
 
-/* Guarda la config actual. */
+/* Save the current config. */
 int config_save(const config_t *cfg);
 
-/* Rellena valores por defecto. */
+/* Fill in default values. */
 void config_default(config_t *cfg);
 
-/* Añade una carpeta favorita (devuelve 0 si ok). */
+/* Add a favorite folder (returns 0 on success). */
 int config_add_folder(config_t *cfg, const char *path);
 
-/* Elimina una carpeta favorita por índice. */
+/* Remove a favorite folder by index. */
 int config_remove_folder(config_t *cfg, int index);
 
 #endif

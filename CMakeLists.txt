@@ -11,7 +11,7 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-# Núcleo compartido en C (biblioteca estática)
+# Shared C core (static library)
 add_library(archpaper_core STATIC
     src/core/backend.c
     src/core/config.c
@@ -27,7 +27,7 @@ target_include_directories(archpaper_core PUBLIC
 
 target_compile_definitions(archpaper_core PRIVATE _DEFAULT_SOURCE)
 
-# Ejecutable principal: CLI + GUI Qt (UI programática)
+# Main executable: CLI + Qt GUI (programmatic UI)
 add_executable(archpaper
     src/cli/main.c
     src/gui/main.cpp
@@ -40,7 +40,7 @@ target_link_libraries(archpaper PRIVATE
     Qt6::Widgets
 )
 
-# Instalación
+# Installation
 include(GNUInstallDirs)
 install(TARGETS archpaper
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

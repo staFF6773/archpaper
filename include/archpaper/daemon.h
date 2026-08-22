@@ -3,10 +3,10 @@
 
 #include "backend.h"
 
-/* Daemon que cambia periódicamente el wallpaper desde un directorio.
- * Si enable_wallust es distinto de cero, ejecuta wallust tras cada cambio.
- * wallust_hook puede ser NULL/vacío para usar el hook por defecto. */
+/* Daemon that periodically changes the wallpaper from a directory.
+ * If enable_wallust is non-zero, it runs wallust after each change.
+ * wallust_hook can be NULL/empty; no external hook is used by default. */
 int daemonize_random(const char *dir, int interval, backend_t b, const char *mode,
-                      int enable_wallust, const char *wallust_hook);
+                       int enable_wallust, const char *wallust_hook);
 
 #endif

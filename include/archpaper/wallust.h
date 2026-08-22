@@ -5,17 +5,17 @@
 extern "C" {
 #endif
 
-/* Comprueba si el binario 'wallust' está disponible en PATH. */
+/* Check whether the 'wallust' binary is available in PATH. */
 int wallust_available(void);
 
-/* Ejecuta 'wallust run <image_path>' en segundo plano.
- * No bloquea al proceso padre. Devuelve 0 si el comando se lanzó. */
+/* Run 'wallust run <image_path>' in the background.
+ * Does not block the parent process. Returns 0 if the command was launched. */
 int wallust_run(const char *image_path);
 
-/* Ejecuta un script adicional post-wallust solo si hook_path está definido
- * y el archivo existe. Nunca usa un hook por defecto: wallust ya ejecuta
- * los hooks definidos en ~/.config/wallust/wallust.toml.
- * El wallpaper se pasa como primer argumento ($1) y en $WALLPAPER. */
+/* Run an additional post-wallust script only if hook_path is set
+ * and the file exists. No default hook is used: wallust already runs
+ * the hooks defined in ~/.config/wallust/wallust.toml.
+ * The wallpaper is passed as the first argument ($1) and in $WALLPAPER. */
 int wallust_hook_run(const char *hook_path, const char *image_path);
 
 #ifdef __cplusplus

@@ -157,8 +157,8 @@ void MainWindow::setupUi() {
     mainLayout->setContentsMargins(14, 14, 14, 14);
     mainLayout->setSpacing(12);
 
-    /* --- Panel izquierdo: carpetas --- */
-    auto *foldersTitle = new QLabel("<b style='font-size:15px;'>Carpetas</b>");
+    /* --- Left panel: folders --- */
+    auto *foldersTitle = new QLabel("<b style='font-size:15px;'>Folders</b>");
 
     foldersList = new QListWidget;
     foldersList->setMinimumWidth(220);
@@ -166,10 +166,10 @@ void MainWindow::setupUi() {
     foldersList->setContextMenuPolicy(Qt::NoContextMenu);
     connect(foldersList, &QListWidget::itemSelectionChanged, this, &MainWindow::onFolderSelected);
 
-    addFolderButton = new QPushButton("+ Añadir");
-    removeFolderButton = new QPushButton("- Eliminar");
-    addFolderButton->setToolTip("Añadir una carpeta de wallpapers");
-    removeFolderButton->setToolTip("Eliminar la carpeta seleccionada de favoritos");
+    addFolderButton = new QPushButton("+ Add");
+    removeFolderButton = new QPushButton("- Remove");
+    addFolderButton->setToolTip("Add a wallpaper folder");
+    removeFolderButton->setToolTip("Remove the selected folder from favorites");
     connect(addFolderButton, &QPushButton::clicked, this, &MainWindow::onAddFolder);
     connect(removeFolderButton, &QPushButton::clicked, this, &MainWindow::onRemoveFolder);
 
@@ -185,11 +185,11 @@ void MainWindow::setupUi() {
     auto *leftPanel = new QWidget;
     leftPanel->setLayout(leftLayout);
 
-    /* --- Panel central: imágenes --- */
+    /* --- Center panel: images --- */
     auto *imagesTitle = new QLabel("<b style='font-size:15px;'>Wallpapers</b>");
 
     filterEdit = new QLineEdit;
-    filterEdit->setPlaceholderText("🔍  Filtrar por nombre...");
+    filterEdit->setPlaceholderText("🔍  Filter by name...");
     filterEdit->setClearButtonEnabled(true);
     connect(filterEdit, &QLineEdit::textChanged, this, &MainWindow::onFilterChanged);
 
@@ -213,10 +213,10 @@ void MainWindow::setupUi() {
     auto *centerPanel = new QWidget;
     centerPanel->setLayout(centerLayout);
 
-    /* --- Panel derecho: preview y controles --- */
-    auto *previewTitle = new QLabel("<b style='font-size:15px;'>Vista previa</b>");
+    /* --- Right panel: preview and controls --- */
+    auto *previewTitle = new QLabel("<b style='font-size:15px;'>Preview</b>");
 
-    previewLabel = new QLabel("Selecciona una imagen");
+    previewLabel = new QLabel("Select an image");
     previewLabel->setAlignment(Qt::AlignCenter);
     previewLabel->setStyleSheet("background-color: #18181b; color: #71717a; border: 1px solid #27272a; border-radius: 12px;");
     previewLabel->setMinimumHeight(320);
@@ -226,13 +226,13 @@ void MainWindow::setupUi() {
     backendCombo = new QComboBox;
     backendCombo->addItem("swaybg");
     backendCombo->addItem("hyprpaper");
-    backendCombo->setToolTip("Backend usado para aplicar el wallpaper");
+    backendCombo->setToolTip("Backend used to apply the wallpaper");
     connect(backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onBackendChanged);
 
     modeCombo = new QComboBox;
     modeCombo->addItems({"fill", "fit", "stretch", "center", "tile"});
-    modeCombo->setToolTip("Modo de ajuste de la imagen al monitor");
+    modeCombo->setToolTip("Image scaling mode");
     connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModeChanged);
 
@@ -241,20 +241,20 @@ void MainWindow::setupUi() {
     optionsLayout->addWidget(new QLabel("Backend:"));
     optionsLayout->addWidget(backendCombo, 1);
     optionsLayout->addSpacing(12);
-    optionsLayout->addWidget(new QLabel("Modo:"));
+    optionsLayout->addWidget(new QLabel("Mode:"));
     optionsLayout->addWidget(modeCombo, 1);
 
-    wallustCheck = new QCheckBox("Generar esquema con wallust");
-    wallustCheck->setToolTip("Ejecutar 'wallust run' tras aplicar el wallpaper");
+    wallustCheck = new QCheckBox("Generate scheme with wallust");
+    wallustCheck->setToolTip("Run 'wallust run' after applying the wallpaper");
     connect(wallustCheck, &QCheckBox::toggled, this, &MainWindow::onWallustToggled);
 
     wallustHookEdit = new QLineEdit;
-    wallustHookEdit->setPlaceholderText("Hook adicional post-wallust (opcional)");
-    wallustHookEdit->setToolTip("Script extra tras wallust; si está vacío se usa solo wallust.toml");
+    wallustHookEdit->setPlaceholderText("Additional post-wallust hook (optional)");
+    wallustHookEdit->setToolTip("Extra script after wallust; if empty only wallust.toml is used");
     connect(wallustHookEdit, &QLineEdit::editingFinished, this, &MainWindow::onWallustHookChanged);
 
-    wallustHookBrowseButton = new QPushButton("Examinar");
-    wallustHookBrowseButton->setToolTip("Seleccionar script post-wallust");
+    wallustHookBrowseButton = new QPushButton("Browse");
+    wallustHookBrowseButton->setToolTip("Select post-wallust script");
     connect(wallustHookBrowseButton, &QPushButton::clicked, this, &MainWindow::onWallustHookBrowse);
 
     auto *wallustHookLayout = new QHBoxLayout;
@@ -263,12 +263,12 @@ void MainWindow::setupUi() {
     wallustHookLayout->addWidget(wallustHookEdit, 1);
     wallustHookLayout->addWidget(wallustHookBrowseButton);
 
-    applyButton = new QPushButton("⬇  Aplicar");
-    randomButton = new QPushButton("🔀  Aleatorio");
-    clearButton = new QPushButton("🗑  Limpiar");
-    applyButton->setToolTip("Aplicar la imagen seleccionada como fondo");
-    randomButton->setToolTip("Elegir un wallpaper aleatorio de la carpeta actual");
-    clearButton->setToolTip("Eliminar el wallpaper actual");
+    applyButton = new QPushButton("⬇  Apply");
+    randomButton = new QPushButton("🔀  Random");
+    clearButton = new QPushButton("🗑  Clear");
+    applyButton->setToolTip("Apply selected image as wallpaper");
+    randomButton->setToolTip("Pick a random wallpaper from the current folder");
+    clearButton->setToolTip("Remove the current wallpaper");
     connect(applyButton, &QPushButton::clicked, this, &MainWindow::onApply);
     connect(randomButton, &QPushButton::clicked, this, &MainWindow::onRandom);
     connect(clearButton, &QPushButton::clicked, this, &MainWindow::onClear);
@@ -283,24 +283,24 @@ void MainWindow::setupUi() {
     intervalSpin->setRange(10, 86400);
     intervalSpin->setValue(300);
     intervalSpin->setSuffix(" s");
-    intervalSpin->setToolTip("Intervalo entre cambios automáticos");
+    intervalSpin->setToolTip("Interval between automatic changes");
 
-    daemonButton = new QPushButton("▶  Iniciar daemon");
+    daemonButton = new QPushButton("▶  Start daemon");
     daemonButton->setCheckable(true);
-    daemonButton->setToolTip("Iniciar/detener el cambio automático de wallpapers");
+    daemonButton->setToolTip("Start/stop automatic wallpaper changes");
     connect(daemonButton, &QPushButton::toggled, this, &MainWindow::onDaemonToggle);
 
     auto *daemonLayout = new QHBoxLayout;
     daemonLayout->setSpacing(10);
-    daemonLayout->addWidget(new QLabel("Intervalo:"));
+    daemonLayout->addWidget(new QLabel("Interval:"));
     daemonLayout->addWidget(intervalSpin);
     daemonLayout->addStretch();
     daemonLayout->addWidget(daemonButton);
 
-    auto *daemonGroup = new QGroupBox("Cambio automático");
+    auto *daemonGroup = new QGroupBox("Automatic change");
     daemonGroup->setLayout(daemonLayout);
 
-    statusLabel = new QLabel("Listo");
+    statusLabel = new QLabel("Ready");
     statusLabel->setStyleSheet("color: #a1a1aa; font-size: 12px;");
 
     auto *rightLayout = new QVBoxLayout;
@@ -316,7 +316,7 @@ void MainWindow::setupUi() {
     auto *rightPanel = new QWidget;
     rightPanel->setLayout(rightLayout);
 
-    /* --- Splitter principal --- */
+    /* --- Main splitter --- */
     auto *splitter = new QSplitter(Qt::Horizontal);
     splitter->addWidget(leftPanel);
     splitter->addWidget(centerPanel);
@@ -341,9 +341,9 @@ void MainWindow::loadConfig() {
 
     wallustCheck->setChecked(cfg.wallust_enabled != 0);
     if (wallust_available()) {
-        wallustCheck->setToolTip("Ejecutar 'wallust run' tras aplicar el wallpaper");
+        wallustCheck->setToolTip("Run 'wallust run' after applying the wallpaper");
     } else {
-        wallustCheck->setToolTip("wallust no está instalado; se activará cuando lo instales");
+        wallustCheck->setToolTip("wallust is not installed; it will activate once installed");
     }
 
     wallustHookEdit->setText(QString::fromUtf8(cfg.wallust_hook));
@@ -354,9 +354,9 @@ void MainWindow::loadConfig() {
         updatePreview(QString::fromUtf8(cfg.last_wallpaper));
     }
 
-    QString status = QString("Backend detectado: %1").arg(backend_to_string(detect_backend()));
+    QString status = QString("Detected backend: %1").arg(backend_to_string(detect_backend()));
     if (!wallust_available()) {
-        status += " | wallust no disponible";
+        status += " | wallust not available";
     }
     updateStatus(status);
 }
@@ -381,7 +381,7 @@ void MainWindow::saveCurrentConfig(const char *path) {
         cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
     }
 
-    /* Conservar carpetas favoritas actuales. */
+    /* Keep current favorite folders. */
     for (int i = 0; i < foldersList->count(); i++) {
         QByteArray folder = foldersList->item(i)->text().toUtf8();
         config_add_folder(&cfg, folder.constData());
@@ -397,8 +397,8 @@ void MainWindow::loadFolders() {
     foldersList->clear();
     if (cfg.folder_count == 0) {
         QStringList defaults = {
-            QDir::homePath() + "/Imágenes",
             QDir::homePath() + "/Pictures",
+            QDir::homePath() + "/Images",
             QDir::homePath() + "/wallpapers",
             "/usr/share/wallpapers"
         };
@@ -422,7 +422,7 @@ void MainWindow::loadFolders() {
 }
 
 void MainWindow::onAddFolder() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Añadir carpeta de wallpapers", QDir::homePath());
+    QString dir = QFileDialog::getExistingDirectory(this, "Add wallpaper folder", QDir::homePath());
     if (dir.isEmpty()) return;
 
     for (int i = 0; i < foldersList->count(); i++) {
@@ -479,7 +479,7 @@ static QPixmap createThumbnail(const QString &path, const QSize &targetSize) {
 
     QPixmap pixmap = QPixmap::fromImage(img);
 
-    /* Añadir un borde sutil. */
+    /* Add a subtle border. */
     QPixmap rounded(targetSize);
     rounded.fill(Qt::transparent);
     QPainter painter(&rounded);
@@ -523,7 +523,7 @@ void MainWindow::loadImagesFromFolder(const QString &folder) {
 
     QApplication::restoreOverrideCursor();
 
-    updateStatus(QString("%1 imágenes en %2").arg(imagesList->count()).arg(folder));
+    updateStatus(QString("%1 images in %2").arg(imagesList->count()).arg(folder));
     onFilterChanged(filterEdit->text());
 }
 
@@ -554,16 +554,16 @@ void MainWindow::onFilterChanged(const QString &text) {
         for (int i = 0; i < imagesList->count(); i++) {
             if (!imagesList->item(i)->isHidden()) visible++;
         }
-        updateStatus(QString("%1 de %2 imágenes coinciden").arg(visible).arg(imagesList->count()));
+        updateStatus(QString("%1 of %2 images match").arg(visible).arg(imagesList->count()));
     } else {
-        updateStatus(QString("%1 imágenes en %2").arg(imagesList->count()).arg(currentFolder));
+        updateStatus(QString("%1 images in %2").arg(imagesList->count()).arg(currentFolder));
     }
 }
 
 void MainWindow::updatePreview(const QString &path) {
     QImageReader reader(path);
     if (!reader.canRead()) {
-        previewLabel->setText("No se pudo cargar la vista previa");
+        previewLabel->setText("Could not load preview");
         previewLabel->setPixmap(QPixmap());
         return;
     }
@@ -577,7 +577,7 @@ void MainWindow::updatePreview(const QString &path) {
 
     QImage img = reader.read();
     if (img.isNull()) {
-        previewLabel->setText("No se pudo cargar la vista previa");
+        previewLabel->setText("Could not load preview");
         previewLabel->setPixmap(QPixmap());
         return;
     }
@@ -602,7 +602,7 @@ void MainWindow::onBackendChanged(int index) {
     int idx = currentBackendIndex();
     backend_t b = (idx == 1) ? BACKEND_HYPRPAPER : BACKEND_SWAYBG;
     if (!backend_available(b)) {
-        updateStatus(QString("Backend '%1' no disponible").arg(backend_to_string(b)));
+        updateStatus(QString("Backend '%1' not available").arg(backend_to_string(b)));
     }
 }
 
@@ -621,9 +621,9 @@ void MainWindow::onWallustHookChanged() {
 
 void MainWindow::onWallustHookBrowse() {
     QString file = QFileDialog::getOpenFileName(this,
-                                                "Seleccionar hook de wallust",
+                                                "Select wallust hook",
                                                 QDir::homePath(),
-                                                "Scripts (*.sh);;Todos los archivos (*)");
+                                                "Scripts (*.sh);;All files (*)");
     if (!file.isEmpty()) {
         wallustHookEdit->setText(file);
         saveCurrentConfig(nullptr);
@@ -641,7 +641,7 @@ void MainWindow::updateStatus(const QString &msg) {
 void MainWindow::onApply() {
     QListWidgetItem *item = imagesList->currentItem();
     if (!item) {
-        updateStatus("Selecciona una imagen primero");
+        updateStatus("Select an image first");
         return;
     }
 
@@ -651,19 +651,19 @@ void MainWindow::onApply() {
 
 void MainWindow::applySelectedImage(const QString &path) {
     if (!QFile::exists(path)) {
-        updateStatus("La imagen no existe");
+        updateStatus("The image does not exist");
         return;
     }
 
     backend_t b = (currentBackendIndex() == 1) ? BACKEND_HYPRPAPER : BACKEND_SWAYBG;
     if (!backend_available(b)) {
-        updateStatus(QString("Backend no disponible: %1").arg(backend_to_string(b)));
+        updateStatus(QString("Backend not available: %1").arg(backend_to_string(b)));
         return;
     }
 
     QByteArray mode = modeCombo->currentText().toUtf8();
     if (set_wallpaper(b, path.toUtf8().constData(), mode.constData()) != 0) {
-        updateStatus("Error al aplicar el wallpaper");
+        updateStatus("Error applying wallpaper");
         return;
     }
 
@@ -677,18 +677,18 @@ void MainWindow::applySelectedImage(const QString &path) {
         config_load(&cfg);
         wallust_hook_run(cfg.wallust_hook, path.toUtf8().constData());
         if (wallust_available()) {
-            updateStatus(QString("Aplicado con wallust: %1").arg(QFileInfo(path).fileName()));
+            updateStatus(QString("Applied with wallust: %1").arg(QFileInfo(path).fileName()));
         } else {
-            updateStatus(QString("Aplicado; wallust no disponible: %1").arg(QFileInfo(path).fileName()));
+            updateStatus(QString("Applied; wallust not available: %1").arg(QFileInfo(path).fileName()));
         }
     } else {
-        updateStatus(QString("Aplicado: %1").arg(QFileInfo(path).fileName()));
+        updateStatus(QString("Applied: %1").arg(QFileInfo(path).fileName()));
     }
 }
 
 void MainWindow::onRandom() {
     if (imagesList->count() == 0) {
-        updateStatus("No hay imágenes disponibles");
+        updateStatus("No images available");
         return;
     }
 
@@ -697,7 +697,7 @@ void MainWindow::onRandom() {
         if (!imagesList->item(i)->isHidden()) visibleCount++;
     }
     if (visibleCount == 0) {
-        updateStatus("Ninguna imagen coincide con el filtro");
+        updateStatus("No images match the filter");
         return;
     }
 
@@ -711,12 +711,12 @@ void MainWindow::onRandom() {
     onImageSelected();
     QString path = imagesList->item(idx)->data(Qt::UserRole).toString();
     applySelectedImage(path);
-    updateStatus(QString("Aleatorio: %1").arg(imagesList->item(idx)->text()));
+    updateStatus(QString("Random: %1").arg(imagesList->item(idx)->text()));
 }
 
 void MainWindow::onClear() {
     clear_wallpaper();
-    updateStatus("Fondo limpiado");
+    updateStatus("Wallpaper cleared");
 }
 
 bool MainWindow::readDaemonPid(int *pid) {
@@ -732,7 +732,7 @@ bool MainWindow::readDaemonPid(int *pid) {
 void MainWindow::onDaemonToggle(bool checked) {
     if (checked) {
         if (currentFolder.isEmpty() || !QDir(currentFolder).exists()) {
-            QMessageBox::warning(this, "Daemon", "Selecciona una carpeta válida primero.");
+            QMessageBox::warning(this, "Daemon", "Select a valid folder first.");
             daemonButton->setChecked(false);
             return;
         }
@@ -746,26 +746,26 @@ void MainWindow::onDaemonToggle(bool checked) {
         config_load(&cfg);
         if (daemonize_random(currentFolder.toUtf8().constData(), interval, b, mode.constData(),
                              enable_wallust, cfg.wallust_hook) != 0) {
-            QMessageBox::critical(this, "Daemon", "No se pudo iniciar el daemon.");
+            QMessageBox::critical(this, "Daemon", "Could not start daemon.");
             daemonButton->setChecked(false);
             return;
         }
 
-        daemonButton->setText("⏹  Detener daemon");
-        updateStatus(QString("Daemon iniciado (%1s)").arg(interval));
+        daemonButton->setText("⏹  Stop daemon");
+        updateStatus(QString("Daemon started (%1s)").arg(interval));
         daemonRunning = true;
     } else {
         int pid = 0;
         if (readDaemonPid(&pid)) {
             if (kill(pid, SIGTERM) == 0) {
-                updateStatus("Daemon detenido");
+                updateStatus("Daemon stopped");
             } else {
-                updateStatus("No se pudo detener el daemon");
+                updateStatus("Could not stop daemon");
             }
         } else {
-            updateStatus("No hay daemon activo");
+            updateStatus("No active daemon");
         }
-        daemonButton->setText("▶  Iniciar daemon");
+        daemonButton->setText("▶  Start daemon");
         daemonRunning = false;
     }
 }

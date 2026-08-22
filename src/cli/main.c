@@ -11,21 +11,21 @@
 #include "archpaper/cli.h"
 
 static void print_usage(const char *name) {
-    printf("Uso: %s <comando> [opciones]\n\n", name);
-    printf("Comandos:\n");
-    printf("  set <imagen> [--mode MODO]      Establece un wallpaper estático.\n");
-    printf("  clear                           Elimina el wallpaper actual.\n");
-    printf("  random <directorio> [--mode MODO]  Selecciona una imagen aleatoria.\n");
-    printf("  daemon <directorio> --interval <s> [--mode MODO]\n");
-    printf("                                  Cambia el wallpaper periódicamente.\n");
-    printf("  status                          Muestra el estado actual.\n");
-    printf("  backend                         Muestra backend detectado y activo.\n");
-    printf("\nModos (swaybg): fill, fit, stretch, center, tile\n");
-    printf("Opciones globales:\n");
-    printf("  --backend <swaybg|hyprpaper>    Fuerza un backend concreto.\n");
-    printf("  --mode <MODO>                   Modo de ajuste de imagen.\n");
-    printf("  --wallust                       Ejecuta 'wallust run' tras aplicar.\n");
-    printf("  --wallust-hook <script>         Script a ejecutar tras wallust.\n");
+    printf("Usage: %s <command> [options]\n\n", name);
+    printf("Commands:\n");
+    printf("  set <image> [--mode MODE]       Set a static wallpaper.\n");
+    printf("  clear                           Remove the current wallpaper.\n");
+    printf("  random <directory> [--mode MODE]  Pick a random image.\n");
+    printf("  daemon <directory> --interval <s> [--mode MODE]\n");
+    printf("                                  Change the wallpaper periodically.\n");
+    printf("  status                          Show the current status.\n");
+    printf("  backend                         Show detected and active backend.\n");
+    printf("\nModes (swaybg): fill, fit, stretch, center, tile\n");
+    printf("Global options:\n");
+    printf("  --backend <swaybg|hyprpaper>    Force a specific backend.\n");
+    printf("  --mode <MODE>                   Image scaling mode.\n");
+    printf("  --wallust                       Run 'wallust run' after applying.\n");
+    printf("  --wallust-hook <script>         Script to run after wallust.\n");
 }
 
 static int check_wayland(void) {
@@ -54,7 +54,7 @@ static void run_wallust_theme(int enabled, const char *image_path, const char *w
     if (wallust_available()) {
         wallust_run(image_path);
     } else {
-        fprintf(stderr, "Advertencia: wallust no encontrado en PATH; se omite la generación de colores.\n");
+        fprintf(stderr, "Warning: wallust not found in PATH; skipping color generation.\n");
     }
     wallust_hook_run(wallust_hook, image_path);
 }
@@ -66,7 +66,7 @@ int archpaper_cli(int argc, char *argv[]) {
     }
 
     if (!check_wayland()) {
-        fprintf(stderr, "Advertencia: no se detectó una sesión Wayland (WAYLAND_DISPLAY no está definido).\n");
+        fprintf(stderr, "Warning: no Wayland session detected (WAYLAND_DISPLAY is not set).\n");
     }
 
     config_t cfg;
@@ -79,7 +79,7 @@ int archpaper_cli(int argc, char *argv[]) {
     parse_global_args(argc, argv, &backend, &mode, &wallust_enabled, &wallust_hook_arg);
 
     if (!backend_available(backend)) {
-        fprintf(stderr, "Error: backend '%s' no encontrado en PATH.\n", backend_to_string(backend));
+        fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
         return 1;
     }
 
@@ -89,7 +89,7 @@ int archpaper_cli(int argc, char *argv[]) {
         if (argc < 3) { print_usage(argv[0]); return 1; }
         char *path = expand_path(argv[2]);
         if (!path || !file_exists(path)) {
-            fprintf(stderr, "Error: no se encontró '%s'\n", argv[2]);
+            fprintf(stderr, "Error: '%s' not found\n", argv[2]);
             free(path);
             return 1;
         }
@@ -117,19 +117,19 @@ int archpaper_cli(int argc, char *argv[]) {
         if (argc < 3) { print_usage(argv[0]); return 1; }
         char *dir = expand_path(argv[2]);
         if (!dir || !is_dir(dir)) {
-            fprintf(stderr, "Error: '%s' no es un directorio.\n", argv[2]);
+            fprintf(stderr, "Error: '%s' is not a directory.\n", argv[2]);
             free(dir);
             return 1;
         }
 
         char *img = random_image(dir);
         if (!img) {
-            fprintf(stderr, "Error: no se encontraron imágenes en '%s'.\n", dir);
+            fprintf(stderr, "Error: no images found in '%s'.\n", dir);
             free(dir);
             return 1;
         }
 
-        printf("Seleccionado: %s\n", img);
+        printf("Selected: %s\n", img);
 
         cfg.backend = backend;
         strncpy(cfg.mode, mode, sizeof(cfg.mode) - 1);
@@ -165,28 +165,28 @@ int archpaper_cli(int argc, char *argv[]) {
         if (!dir_raw) { print_usage(argv[0]); return 1; }
         char *dir = expand_path(dir_raw);
         if (!dir || !is_dir(dir)) {
-            fprintf(stderr, "Error: '%s' no es un directorio.\n", dir_raw);
+            fprintf(stderr, "Error: '%s' is not a directory.\n", dir_raw);
             free(dir);
             return 1;
         }
 
-        printf("Iniciando daemon: backend=%s, intervalo=%ds, wallust=%s, directorio=%s\n",
+        printf("Starting daemon: backend=%s, interval=%ds, wallust=%s, directory=%s\n",
                backend_to_string(backend), interval,
-               wallust_enabled ? "si" : "no", dir);
+               wallust_enabled ? "yes" : "no", dir);
         const char *wallust_hook = wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook;
         return daemonize_random(dir, interval, backend, mode, wallust_enabled, wallust_hook);
 
     } else if (strcmp(command, "status") == 0) {
-        printf("Backend activo:   %s\n", backend_to_string(backend));
-        printf("Modo:             %s\n", mode);
-        printf("Backend detectado:%s\n", backend_to_string(detect_backend()));
-        printf("Último wallpaper: %s\n",
-               cfg.last_wallpaper[0] ? cfg.last_wallpaper : "(ninguno)");
+        printf("Active backend:   %s\n", backend_to_string(backend));
+        printf("Mode:             %s\n", mode);
+        printf("Detected backend: %s\n", backend_to_string(detect_backend()));
+        printf("Last wallpaper:   %s\n",
+               cfg.last_wallpaper[0] ? cfg.last_wallpaper : "(none)");
         return 0;
 
     } else if (strcmp(command, "backend") == 0) {
-        printf("Detectado: %s\n", backend_to_string(detect_backend()));
-        printf("Activo:    %s\n", backend_to_string(backend));
+        printf("Detected: %s\n", backend_to_string(detect_backend()));
+        printf("Active:   %s\n", backend_to_string(backend));
         return 0;
 
     } else if (strcmp(command, "--help") == 0 || strcmp(command, "-h") == 0) {
@@ -194,7 +194,7 @@ int archpaper_cli(int argc, char *argv[]) {
         return 0;
 
     } else {
-        fprintf(stderr, "Comando desconocido: %s\n\n", command);
+        fprintf(stderr, "Unknown command: %s\n\n", command);
         print_usage(argv[0]);
         return 1;
     }

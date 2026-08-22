@@ -9,16 +9,16 @@ typedef enum {
 const char *backend_to_string(backend_t b);
 backend_t backend_from_string(const char *s);
 
-/* Detecta automáticamente el backend (hyprpaper solo si estamos en Hyprland). */
+/* Automatically detect the backend (hyprpaper only if running under Hyprland). */
 backend_t detect_backend(void);
 
-/* Comprueba si el binario del backend está en PATH. */
+/* Check whether the backend binary is available in PATH. */
 int backend_available(backend_t b);
 
-/* Aplica un wallpaper con el backend indicado. */
+/* Apply a wallpaper with the selected backend. */
 int set_wallpaper(backend_t b, const char *path, const char *mode);
 
-/* Elimina los procesos de fondo existentes. */
+/* Remove existing background processes. */
 int clear_wallpaper(void);
 
 #endif

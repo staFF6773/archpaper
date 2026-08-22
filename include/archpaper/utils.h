@@ -1,22 +1,22 @@
 #ifndef ARCHPAPER_UTILS_H
 #define ARCHPAPER_UTILS_H
 
-/* Expande una ruta que empieza con ~ al valor de $HOME. */
+/* Expand a path that starts with ~ to the value of $HOME. */
 char *expand_path(const char *path);
 
-/* Comprueba si un archivo o directorio existe. */
+/* Check whether a file or directory exists. */
 int file_exists(const char *path);
 
-/* Comprueba si la ruta es un directorio. */
+/* Check whether the path is a directory. */
 int is_dir(const char *path);
 
-/* Indica si la ruta tiene extensión de imagen soportada. */
+/* Indicate whether the path has a supported image extension. */
 int is_image(const char *path);
 
-/* Devuelve una imagen aleatoria de un directorio (debe liberarse con free). */
+/* Return a random image from a directory (must be freed with free). */
 char *random_image(const char *dir);
 
-/* Devuelve el directorio home del usuario. */
+/* Return the user's home directory. */
 const char *get_home(void);
 
 #endif

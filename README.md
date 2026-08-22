@@ -1,140 +1,144 @@
 # archpaper
 
-Gestor de fondos de pantalla para **Wayland** en Arch Linux y derivadas, con **interfaz gráfica en Qt6** y CLI integrada para autostart/scripts.
+Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI** and integrated CLI for autostart/scripts.
 
-## Características
+## Features
 
-- **GUI en Qt6** con organización en tres paneles:
-  - Carpetas favoritas a la izquierda.
-  - Miniaturas de imágenes del directorio seleccionado en el centro.
-  - Vista previa grande y controles a la derecha.
-- **Filtro rápido** por nombre de archivo.
-- **Doble clic** para aplicar un wallpaper directamente.
-- Backends **swaybg** (universal Wayland) y **hyprpaper** (Hyprland).
-- Detección automática de backend en Hyprland.
-- Modo daemon para cambios automáticos por intervalo.
-- Soporte opcional de `wallust` para generar esquemas de color desde el wallpaper.
-- Configuración persistente en `~/.config/archpaper/config`.
+- **Qt6 GUI** with a three-panel layout:
+  - Favorite folders on the left.
+  - Thumbnails of the selected directory in the center.
+  - Large preview and controls on the right.
+- **Quick filter** by file name.
+- **Double click** to apply a wallpaper directly.
+- Backends **swaybg** (universal Wayland) and **hyprpaper** (Hyprland).
+- Automatic backend detection on Hyprland.
+- Daemon mode for automatic wallpaper changes by interval.
+- Persistent configuration in `~/.config/archpaper/config`.
 
-## Dependencias
+## Dependencies
 
 ```text
 swaybg
 qt6-base
 ```
 
-Opcional:
+Optional:
 
 ```text
 hyprpaper
 wallust
 ```
 
-Para compilar:
+To build:
 
 ```text
 cmake
 base-devel
 ```
 
-## Compilar
+## Build
 
 ```bash
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-## Instalar
+## Install
 
 ```bash
 sudo cmake --install build --prefix /usr
 ```
 
-O desde PKGBUILD:
+Or from PKGBUILD:
 
 ```bash
 makepkg -si
 ```
 
-También genera un archivo `.desktop` para aparecer en el menú de aplicaciones.
+## Usage
 
-## Uso
-
-### Interfaz gráfica
+### GUI
 
 ```bash
 archpaper
 ```
 
-En la ventana:
-- Selecciona una carpeta de la lista (o añade una nueva).
-- Haz clic en una miniatura para ver la vista previa.
-- Doble clic o botón **Aplicar** para establecer el fondo.
-- Usa el cuadro de búsqueda para filtrar por nombre.
-- Activa el daemon para cambios automáticos.
+In the window:
+- Select a folder from the list (or add a new one).
+- Click a thumbnail to see the preview.
+- Double-click or press **Apply** to set the wallpaper.
+- Use the search box to filter by name.
+- Enable the daemon for automatic changes.
 
 ### CLI
 
 ```bash
-archpaper set <imagen> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper] [--wallust] [--wallust-hook <script>]
-archpaper random <directorio> [--wallust] [--wallust-hook <script>]
-archpaper daemon <directorio> --interval <segundos> [--wallust] [--wallust-hook <script>]
+archpaper set <image> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper] [--wallust] [--wallust-hook <script>]
+archpaper random <directory> [--wallust] [--wallust-hook <script>]
+archpaper daemon <directory> --interval <seconds> [--wallust] [--wallust-hook <script>]
 archpaper clear
 archpaper status
 archpaper backend
 ```
 
-## Integración con wallust
+## Wallust integration
 
-Si tienes `wallust` instalado, puedes generar automáticamente un esquema de
-color a partir del wallpaper:
-
-```bash
-archpaper set ~/Imágenes/fondo.jpg --wallust
-```
-
-También puedes activarlo desde la GUI marcando *Generar esquema con wallust*.
-La opción se guarda en `~/.config/archpaper/config` bajo `wallust=true|false`.
-
-`archpaper` ejecuta `wallust run <imagen>`; eso hace que **wallust use tu propia
-configuración** de `~/.config/wallust/wallust.toml` para escribir sus templates y
-sus hooks. Es decir, si en tu `wallust.toml` tienes un `[hooks.reload]` que
-recarga waybar, kitty, etc., ya funciona **sin añadir nada más**.
-
-### Hook adicional (opcional)
-
-Si además quieres algo fuera de `wallust.toml`, puedes usar el campo *Hook* de
-la GUI o `--wallust-hook <script>` en la CLI:
+If `wallust` is installed, you can automatically generate a color scheme from the wallpaper:
 
 ```bash
-archpaper set ~/Imágenes/fondo.jpg --wallust --wallust-hook ~/.config/archpaper/otro_hook.sh
+archpaper set ~/Pictures/wallpaper.jpg --wallust
 ```
 
-El script recibirá el wallpaper como `$1` y en la variable `$WALLPAPER`:
+You can also enable it in the GUI by checking *Generate scheme with wallust*. The setting is saved in `~/.config/archpaper/config` under `wallust=true|false`.
 
-## Integración con compositores
+`archpaper` runs `wallust run <image>`, which makes **wallust use your own configuration** from `~/.config/wallust/wallust.toml` to write its templates and execute its hooks. So if your `wallust.toml` has a `[hooks.reload]` section that reloads waybar, kitty, etc., it already works without adding anything else.
+
+### Optional additional hook
+
+If you need to run something outside of `wallust.toml`, use the *Hook* field in the GUI or `--wallust-hook <script>` in the CLI:
+
+```bash
+archpaper set ~/Pictures/wallpaper.jpg --wallust --wallust-hook ~/.config/archpaper/extra_hook.sh
+```
+
+The script receives the wallpaper as `$1` and in the `$WALLPAPER` environment variable:
+
+```bash
+#!/bin/bash
+# Extra post-wallust commands
+killall -SIGUSR2 waybar 2>/dev/null
+killall -USR1 kitty 2>/dev/null
+makoctl reload 2>/dev/null
+```
+
+### GUI configuration
+
+- **Checkbox** *Generate scheme with wallust* enables wallust on every wallpaper change.
+- **Hook:** optional extra script to run after wallust. If left empty, only `wallust run` is executed and your `wallust.toml` handles the rest.
+
+## Composer integration
 
 ### Hyprland
 
 ```ini
-exec-once = archpaper set ~/Imágenes/fondo.jpg
+exec-once = archpaper set ~/Pictures/wallpaper.jpg
 ```
 
 ### Sway
 
 ```sway
-exec archpaper set ~/Imágenes/fondo.jpg
+exec archpaper set ~/Pictures/wallpaper.jpg
 ```
 
-## Estructura del proyecto
+## Project structure
 
 ```text
-include/archpaper/  # API pública del núcleo en C
-src/core/           # Núcleo: backend, config, daemon, utils
-src/cli/            # Punto de entrada CLI
-src/gui/            # Interfaz gráfica Qt6
+include/archpaper/  # Public core API in C
+src/core/           # Core: backend, config, daemon, utils, wallust
+src/cli/            # CLI entry point
+src/gui/            # Qt6 GUI
 ```
 
-## Licencia
+## License
 
 MIT
