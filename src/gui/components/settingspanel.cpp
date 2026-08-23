@@ -44,7 +44,7 @@ void SettingsPanel::setupUi() {
     m_backendCombo->addItem("swaybg");
     m_backendCombo->addItem("hyprpaper");
     m_backendCombo->addItem("mpvpaper");
-    m_backendCombo->addItem("swww");
+    m_backendCombo->addItem("awww");
     m_backendCombo->setToolTip("Backend used to apply wallpapers");
     connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsPanel::backendChanged);

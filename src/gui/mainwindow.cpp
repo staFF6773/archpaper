@@ -143,7 +143,7 @@ void MainWindow::setupUi() {
     m_backendCombo->addItem("swaybg");
     m_backendCombo->addItem("hyprpaper");
     m_backendCombo->addItem("mpvpaper");
-    m_backendCombo->addItem("swww");
+    m_backendCombo->addItem("awww");
     m_backendCombo->setToolTip("Backend used to apply the wallpaper");
     connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onBackendChanged);
@@ -654,18 +654,7 @@ backend_t MainWindow::selectedBackend() const {
 }
 
 backend_t MainWindow::preferredBackendFor(const QString &path) const {
-    backend_t chosen = selectedBackend();
-
-    if (chosen == BACKEND_MPVPPAPER || chosen == BACKEND_SWWW) return chosen;
-
-    if (isVideo(path) && backend_available(BACKEND_MPVPPAPER))
-        return BACKEND_MPVPPAPER;
-    if (isAnimatedFile(path) && backend_available(BACKEND_SWWW))
-        return BACKEND_SWWW;
-    if (isAnimatedFile(path) && backend_available(BACKEND_MPVPPAPER))
-        return BACKEND_MPVPPAPER;
-
-    return chosen;
+    return select_backend_for_path(path.toUtf8().constData(), selectedBackend());
 }
 
 void MainWindow::applySelectedImage(const QString &path) {

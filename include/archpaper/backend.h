@@ -27,6 +27,10 @@ backend_t detect_backend(void);
 /* Check whether the backend binary is available in PATH. */
 int backend_available(backend_t b);
 
+/* Pick the best backend for a file, falling back from the user's preference
+ * when the file type is unsupported by that backend. */
+backend_t select_backend_for_path(const char *path, backend_t preferred);
+
 /* Apply a wallpaper with the selected backend. */
 int set_wallpaper(backend_t b, const char *path, const char *mode);
 

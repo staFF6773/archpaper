@@ -32,7 +32,7 @@ static void print_usage(const char *name) {
     printf("  backend                         Show detected and active backend.\n");
     printf("\nModes (swaybg): fill, fit, stretch, center, tile\n");
     printf("Global options:\n");
-    printf("  --backend <swaybg|hyprpaper|swww|mpvpaper>  Force a specific backend.\n");
+    printf("  --backend <swaybg|hyprpaper|awww|mpvpaper>  Force a specific backend.\n");
     printf("  --mode <MODE>                   Image scaling mode.\n");
     printf("  --wallust                       Run 'wallust run' after applying.\n");
     printf("  --wallust-hook <script>         Script to run after wallust.\n");
@@ -88,11 +88,6 @@ int archpaper_cli(int argc, char *argv[]) {
     int wallust_enabled = cfg.wallust_enabled;
     parse_global_args(argc, argv, &backend, &mode, &wallust_enabled, &wallust_hook_arg);
 
-    if (!backend_available(backend)) {
-        fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
-        return 1;
-    }
-
     const char *command = argv[1];
 
     if (strcmp(command, "set") == 0) {
@@ -100,6 +95,13 @@ int archpaper_cli(int argc, char *argv[]) {
         char *path = expand_path(argv[2]);
         if (!path || !file_exists(path)) {
             fprintf(stderr, "Error: '%s' not found\n", argv[2]);
+            free(path);
+            return 1;
+        }
+
+        backend = select_backend_for_path(path, backend);
+        if (!backend_available(backend)) {
+            fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
             free(path);
             return 1;
         }
@@ -140,6 +142,14 @@ int archpaper_cli(int argc, char *argv[]) {
         }
 
         printf("Selected: %s\n", img);
+
+        backend = select_backend_for_path(img, backend);
+        if (!backend_available(backend)) {
+            fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
+            free(img);
+            free(dir);
+            return 1;
+        }
 
         cfg.backend = backend;
         strncpy(cfg.mode, mode, sizeof(cfg.mode) - 1);

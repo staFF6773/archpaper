@@ -65,7 +65,8 @@ int daemonize_random(const char *dir, int interval, backend_t b, const char *mod
     while (running) {
         char *img = random_image(dir);
         if (img) {
-            set_wallpaper(b, img, mode);
+            backend_t actual = select_backend_for_path(img, b);
+            set_wallpaper(actual, img, mode);
             if (enable_wallust) {
                 if (wallust_available()) {
                     wallust_run(img);

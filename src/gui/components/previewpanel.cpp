@@ -11,6 +11,7 @@
 #include "previewpanel.h"
 
 #include <QBrush>
+#include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QImageReader>
@@ -19,9 +20,11 @@
 #include <QMovie>
 #include <QPainter>
 #include <QPainterPath>
+#include <QProcess>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QStackedWidget>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -65,6 +68,40 @@ QPixmap roundPixmap(const QPixmap &source, int radius) {
     painter.drawRoundedRect(source.rect(), radius, radius);
     painter.end();
     return rounded;
+}
+
+QPixmap extractVideoThumbnail(const QString &path, const QSize &maxSize) {
+    QString tmpPath = QDir::temp().filePath(
+        QStringLiteral("archpaper_vthumb_%1.jpg").arg(qHash(path)));
+
+    QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (!ffmpeg.isEmpty()) {
+        QStringList args;
+        args << QStringLiteral("-y") << QStringLiteral("-i") << path
+             << QStringLiteral("-ss") << QStringLiteral("00:00:00.100")
+             << QStringLiteral("-vframes") << QStringLiteral("1")
+             << QStringLiteral("-q:v") << QStringLiteral("2") << tmpPath;
+        QProcess::execute(ffmpeg, args);
+    } else {
+        QString mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
+        if (!mpv.isEmpty()) {
+            QStringList args;
+            args << path << QStringLiteral("--no-audio") << QStringLiteral("--no-config")
+                 << QStringLiteral("--frames=1") << (QStringLiteral("--o=") + tmpPath);
+            QProcess::execute(mpv, args);
+        }
+    }
+
+    if (QFile::exists(tmpPath)) {
+        QPixmap pix(tmpPath);
+        if (!pix.isNull()) {
+            pix = pix.scaled(maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            QPixmap rounded = roundPixmap(pix, 16);
+            QFile::remove(tmpPath);
+            return rounded;
+        }
+    }
+    return QPixmap();
 }
 
 constexpr int PREVIEW_MARGIN = 24;
@@ -148,6 +185,8 @@ void PreviewPanel::setWallpaper(const QString &path) {
     }
     m_currentPath = path;
     m_scalingDirty = false;
+    m_isAnimated = isAnimatedImage(path);
+    m_isVideo = isVideo(path);
 
     stopMedia();
 
@@ -159,9 +198,9 @@ void PreviewPanel::setWallpaper(const QString &path) {
     QFileInfo info(path);
     QString badge = mediaBadgeText(path);
 
-    if (isAnimatedImage(path)) {
+    if (m_isAnimated) {
         showAnimatedImage(path);
-    } else if (isVideo(path)) {
+    } else if (m_isVideo) {
         showVideo(path);
     } else {
         showImage(path);
@@ -200,15 +239,23 @@ void PreviewPanel::onFavoriteClicked() {
 
 void PreviewPanel::resizeEvent(QResizeEvent *event) {
     QFrame::resizeEvent(event);
-    if (!m_currentPath.isEmpty()) {
-        m_scalingDirty = true;
-        // Reload on next event loop to avoid recursive resize floods.
-        QTimer::singleShot(100, this, [this]() {
-            if (m_scalingDirty) {
-                setWallpaper(m_currentPath);
-            }
-        });
+    if (m_currentPath.isEmpty())
+        return;
+
+    if (m_isVideo || m_isAnimated) {
+        /* Videos via QVideoWidget and animated images via QMovie scale on their
+         * own inside the layout. Reloading them on every resize creates a
+         * feedback loop that freezes the UI and wastes CPU. */
+        return;
     }
+
+    m_scalingDirty = true;
+    // Re-scale the cached static pixmap on the next event loop tick.
+    QTimer::singleShot(100, this, [this]() {
+        if (m_scalingDirty && !m_originalPixmap.isNull()) {
+            scaleAndShowPixmap();
+        }
+    });
 }
 
 void PreviewPanel::stopMedia() {
@@ -223,6 +270,9 @@ void PreviewPanel::stopMedia() {
         delete m_player;
         m_player = nullptr;
     }
+    m_originalPixmap = QPixmap();
+    m_isAnimated = false;
+    m_isVideo = false;
 }
 
 void PreviewPanel::showImage(const QString &path) {
@@ -231,25 +281,35 @@ void PreviewPanel::showImage(const QString &path) {
     if (!reader.canRead()) {
         m_imageLabel->setText("Could not load preview");
         m_imageLabel->setPixmap(QPixmap());
+        m_originalPixmap = QPixmap();
         return;
-    }
-
-    QSize maxSize = m_imageLabel->size() - QSize(PREVIEW_MARGIN, PREVIEW_MARGIN);
-    maxSize = maxSize.boundedTo(QSize(2560, 1600));
-
-    QSize orig = reader.size();
-    if (orig.isValid() && !orig.isNull()) {
-        reader.setScaledSize(orig.scaled(maxSize, Qt::KeepAspectRatio));
     }
 
     QImage img = reader.read();
     if (img.isNull()) {
         m_imageLabel->setText("Could not load preview");
+        m_originalPixmap = QPixmap();
         return;
     }
 
-    QPixmap pix = QPixmap::fromImage(img);
-    m_imageLabel->setPixmap(roundPixmap(pix, 16));
+    /* Keep the original at a reasonable resolution so we can re-scale it on
+     * resize without re-reading the file from disk. */
+    m_originalPixmap = QPixmap::fromImage(img);
+    scaleAndShowPixmap();
+}
+
+void PreviewPanel::scaleAndShowPixmap() {
+    if (m_originalPixmap.isNull()) {
+        return;
+    }
+    m_scalingDirty = false;
+
+    QSize maxSize = m_imageLabel->size() - QSize(PREVIEW_MARGIN, PREVIEW_MARGIN);
+    maxSize = maxSize.boundedTo(QSize(2560, 1600));
+
+    QPixmap scaled = m_originalPixmap.scaled(maxSize, Qt::KeepAspectRatio,
+                                           Qt::SmoothTransformation);
+    m_imageLabel->setPixmap(roundPixmap(scaled, 16));
     m_imageLabel->setText("");
 }
 
@@ -258,7 +318,7 @@ void PreviewPanel::showAnimatedImage(const QString &path) {
     m_movie = new QMovie(path, QByteArray(), this);
     if (m_movie->isValid()) {
         QSize size = m_imageLabel->size() - QSize(PREVIEW_MARGIN, PREVIEW_MARGIN);
-        m_movie->setScaledSize(size);
+        m_movie->setScaledSize(size.boundedTo(QSize(1920, 1080)));
         m_imageLabel->setMovie(m_movie);
         m_imageLabel->setText("");
         m_movie->start();
@@ -270,12 +330,25 @@ void PreviewPanel::showAnimatedImage(const QString &path) {
 }
 
 void PreviewPanel::showVideo(const QString &path) {
-    m_stack->setCurrentIndex(1);
-    m_player = new QMediaPlayer(this);
-    m_player->setVideoOutput(m_videoWidget);
-    m_player->setSource(QUrl::fromLocalFile(path));
-    m_player->setLoops(QMediaPlayer::Infinite);
-    m_player->play();
+    /* Playing the full-resolution video in a tiny preview widget burns CPU
+     * and can freeze the UI on resize. Show a static thumbnail instead. */
+    showVideoThumbnail(path);
+}
+
+void PreviewPanel::showVideoThumbnail(const QString &path) {
+    m_stack->setCurrentIndex(0);
+
+    QSize maxSize = m_imageLabel->size() - QSize(PREVIEW_MARGIN, PREVIEW_MARGIN);
+    maxSize = maxSize.boundedTo(QSize(1920, 1080));
+
+    QPixmap thumb = extractVideoThumbnail(path, maxSize);
+    if (!thumb.isNull()) {
+        m_imageLabel->setPixmap(thumb);
+        m_imageLabel->setText("");
+    } else {
+        m_imageLabel->setText("\u25b6  VIDEO\n(could not generate preview)");
+        m_imageLabel->setPixmap(QPixmap());
+    }
 }
 
 void PreviewPanel::showEmpty() {
@@ -285,6 +358,9 @@ void PreviewPanel::showEmpty() {
     m_infoLabel->clear();
     m_favoriteButton->setEnabled(false);
     m_favoriteButton->setText("\u2606  Favorite");
+    m_originalPixmap = QPixmap();
+    m_isAnimated = false;
+    m_isVideo = false;
 }
 
 void PreviewPanel::updateInfo(const QFileInfo &info, const QString &badge) {

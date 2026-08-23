@@ -8,7 +8,7 @@ url="https://github.com/staFF6773/archpaper"
 license=('GPL-3.0-or-later')
 depends=('swaybg' 'qt6-base' 'qt6-multimedia' 'qt6-network')
 optdepends=('hyprpaper: alternative backend on Hyprland'
-            'swww: efficient animated/GIF wallpapers on Wayland'
+            'awww: efficient animated/GIF wallpapers on Wayland'
             'mpvpaper: video wallpapers on Wayland'
             'wallust: color scheme generation')
 makedepends=('cmake' 'gcc' 'make')

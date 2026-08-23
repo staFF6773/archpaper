@@ -14,8 +14,8 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 - **Quick filter** by file name across the current section.
 - **Double click** to apply a wallpaper directly.
 - **Favorites** and **Recent** wallpapers tracked automatically.
-- Backends **swaybg** (universal Wayland), **hyprpaper** (Hyprland), **swww** (efficient animated/GIF wallpapers) and **mpvpaper** (video wallpapers).
-- Automatic backend detection: prefers **swww** when available because it is the most efficient for animated and static wallpapers on Wayland.
+- Backends **swaybg** (universal Wayland), **hyprpaper** (Hyprland), **awww** (efficient animated/GIF wallpapers) and **mpvpaper** (video wallpapers).
+- Automatic backend detection: prefers **awww** when available because it is the most efficient for animated and static wallpapers on Wayland.
 - Animated wallpaper support: GIF/WebP/MP4/WebM/MKV/MOV with automatic backend selection.
 - Optimized preview: only the selected wallpaper plays animation; it stops when switching to another item.
 - Daemon mode for automatic wallpaper changes by interval.
@@ -34,7 +34,7 @@ Optional:
 
 ```text
 hyprpaper
-swww      # efficient animated/GIF wallpapers on Wayland
+awww      # efficient animated/GIF wallpapers on Wayland
 mpvpaper  # video wallpapers on Wayland
 wallust
 ```
@@ -95,7 +95,7 @@ The **Market** section lets you search online wallpaper sources without opening 
 ### CLI
 
 ```bash
-archpaper set <image|video|gif> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper|swww|mpvpaper] [--wallust] [--wallust-hook <script>]
+archpaper set <image|video|gif> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper|awww|mpvpaper] [--wallust] [--wallust-hook <script>]
 archpaper random <directory> [--wallust] [--wallust-hook <script>]
 archpaper daemon <directory> --interval <seconds> [--wallust] [--wallust-hook <script>]
 archpaper clear
@@ -107,7 +107,7 @@ archpaper backend
 
 `archpaper` supports GIF, animated WebP, MP4, WebM, MKV, MOV and AVI files.
 
-- **swww** is the preferred backend for animated images (GIF/WebP) and static images on Wayland; it is lightweight and fast.
+- **awww** is the preferred backend for animated images (GIF/WebP) and static images on Wayland; it is lightweight and fast.
 - **mpvpaper** is used for video files (MP4/WebM/MKV/MOV/AVI).
 
 If you select a backend such as `swaybg` or `hyprpaper` and apply an animated file, `archpaper` automatically switches to a compatible backend when available. The GUI previews the animation only for the selected item and stops it when you select another wallpaper, keeping CPU/GPU usage low.
@@ -115,8 +115,8 @@ If you select a backend such as `swaybg` or `hyprpaper` and apply an animated fi
 To use animated wallpapers with the CLI:
 
 ```bash
-# Requires swww-daemon running for swww
-archpaper set ~/Wallpapers/animation.gif --backend swww
+# Requires awww-daemon running for awww
+archpaper set ~/Wallpapers/animation.gif --backend awww
 
 # Requires mpvpaper for video
 archpaper set ~/Wallpapers/video.mp4 --backend mpvpaper

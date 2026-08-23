@@ -13,6 +13,7 @@
 
 #include <QFileInfo>
 #include <QFrame>
+#include <QPixmap>
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -52,8 +53,10 @@ private:
     void setupUi();
     void stopMedia();
     void showImage(const QString &path);
+    void scaleAndShowPixmap();
     void showAnimatedImage(const QString &path);
     void showVideo(const QString &path);
+    void showVideoThumbnail(const QString &path);
     void showEmpty();
     void updateInfo(const QFileInfo &info, const QString &badge);
 
@@ -72,6 +75,9 @@ private:
     QString m_currentPath;
     bool m_isFavorite = false;
     bool m_scalingDirty = false;
+    bool m_isAnimated = false;
+    bool m_isVideo = false;
+    QPixmap m_originalPixmap;
 };
 
 #endif // PREVIEWPANEL_H
