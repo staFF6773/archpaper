@@ -15,6 +15,7 @@
 
 QT_BEGIN_NAMESPACE
 class QCheckBox;
+class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -31,6 +32,9 @@ public:
 
     void setWallustHook(const QString &hook);
     QString wallustHook() const;
+
+    void setCacheQuality(const QString &quality);
+    QString cacheQuality() const;
 
     void setInterval(int seconds);
     int interval() const;
@@ -51,6 +55,7 @@ private:
     QCheckBox *m_wallustCheck;
     QLineEdit *m_wallustHookEdit;
     QPushButton *m_wallustHookBrowseButton;
+    QComboBox *m_cacheQualityCombo;
     QSpinBox *m_intervalSpin;
     QPushButton *m_daemonButton;
 };

@@ -41,7 +41,8 @@ static void clear_pid(void) {
 }
 
 int daemonize_random(const char *dir, int interval, backend_t b, const char *mode,
-                      int enable_wallust, const char *wallust_hook) {
+                       int enable_wallust, const char *wallust_hook,
+                       const char *cache_quality) {
     pid_t pid = fork();
     if (pid < 0) return 1;
     if (pid > 0) return 0; /* Parent exits immediately. */
@@ -66,7 +67,7 @@ int daemonize_random(const char *dir, int interval, backend_t b, const char *mod
         char *img = random_image(dir);
         if (img) {
             backend_t actual = select_backend_for_path(img, b);
-            set_wallpaper(actual, img, mode);
+            set_wallpaper(actual, img, mode, cache_quality);
             if (enable_wallust) {
                 if (wallust_available()) {
                     wallust_run(img);

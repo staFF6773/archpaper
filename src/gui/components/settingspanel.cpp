@@ -11,6 +11,7 @@
 #include "settingspanel.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -62,6 +63,36 @@ void SettingsPanel::setupUi() {
     wallustLayout->addWidget(m_wallustCheck);
     wallustLayout->addLayout(hookLayout);
 
+    /* Cache / quality */
+    auto *cacheGroup = new QGroupBox("Cache quality");
+    cacheGroup->setObjectName("settingsGroup");
+
+    auto *cacheQualityLabel = new QLabel("Downscale oversized videos/animations to:");
+    cacheQualityLabel->setObjectName("mutedLabel");
+    m_cacheQualityCombo = new QComboBox;
+    m_cacheQualityCombo->setToolTip(
+        "Original = never transcode, use full resolution.\n"
+        "Monitor size = transcode only if larger than your screen.\n"
+        "Low = always downscale to 1080p/720p (old behaviour).");
+    m_cacheQualityCombo->addItem("Monitor size", "monitor");
+    m_cacheQualityCombo->addItem("Original", "original");
+    m_cacheQualityCombo->addItem("Low (save CPU/disk)", "low");
+    connect(m_cacheQualityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsPanel::settingsChanged);
+
+    auto *cacheLayout = new QHBoxLayout;
+    cacheLayout->setSpacing(10);
+    cacheLayout->addWidget(cacheQualityLabel);
+    cacheLayout->addWidget(m_cacheQualityCombo, 1);
+
+    auto *cacheInner = new QVBoxLayout(cacheGroup);
+    cacheInner->setSpacing(10);
+    cacheInner->addLayout(cacheLayout);
+    cacheInner->addWidget(new QLabel(
+        "<span style='color:#8b949e; font-size:12px;'>"
+        "Original keeps native resolution; Monitor balances quality and CPU use."
+        "</span>"));
+
     /* Daemon */
     auto *daemonGroup = new QGroupBox("Automatic wallpaper change");
     daemonGroup->setObjectName("settingsGroup");
@@ -96,6 +127,7 @@ void SettingsPanel::setupUi() {
     layout->setSpacing(16);
     layout->addWidget(title);
     layout->addWidget(wallustGroup);
+    layout->addWidget(cacheGroup);
     layout->addWidget(daemonGroup);
     layout->addStretch(1);
 }
@@ -114,6 +146,17 @@ void SettingsPanel::setWallustHook(const QString &hook) {
 
 QString SettingsPanel::wallustHook() const {
     return m_wallustHookEdit->text();
+}
+
+void SettingsPanel::setCacheQuality(const QString &quality) {
+    int idx = m_cacheQualityCombo->findData(quality, Qt::UserRole, Qt::MatchFixedString);
+    if (idx < 0)
+        idx = m_cacheQualityCombo->findData("monitor");
+    m_cacheQualityCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+QString SettingsPanel::cacheQuality() const {
+    return m_cacheQualityCombo->currentData().toString();
 }
 
 void SettingsPanel::setInterval(int seconds) {

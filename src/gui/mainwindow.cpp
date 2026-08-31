@@ -277,6 +277,7 @@ void MainWindow::loadConfig() {
 
     m_settingsPanel->setWallustEnabled(cfg.wallust_enabled != 0);
     m_settingsPanel->setWallustHook(QString::fromUtf8(cfg.wallust_hook));
+    m_settingsPanel->setCacheQuality(QString::fromUtf8(cfg.cache_quality));
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
 
     loadFavorites();
@@ -317,6 +318,10 @@ void MainWindow::saveCurrentConfig(const char *path) {
     }
 
     cfg.daemon_interval = m_settingsPanel->interval();
+
+    QByteArray cacheQuality = m_settingsPanel->cacheQuality().toUtf8();
+    strncpy(cfg.cache_quality, cacheQuality.constData(), sizeof(cfg.cache_quality) - 1);
+    cfg.cache_quality[sizeof(cfg.cache_quality) - 1] = '\0';
 
     config_save(&cfg);
     saveFolders();
@@ -620,8 +625,12 @@ void MainWindow::onDaemonRequested(bool start) {
                 sizeof(cfg.wallust_hook) - 1);
         cfg.wallust_hook[sizeof(cfg.wallust_hook) - 1] = '\0';
 
+        strncpy(cfg.cache_quality, m_settingsPanel->cacheQuality().toUtf8().constData(),
+                sizeof(cfg.cache_quality) - 1);
+        cfg.cache_quality[sizeof(cfg.cache_quality) - 1] = '\0';
+
         if (daemonize_random(m_currentFolder.toUtf8().constData(), interval, b, mode.constData(),
-                             enable_wallust, cfg.wallust_hook) != 0) {
+                             enable_wallust, cfg.wallust_hook, cfg.cache_quality) != 0) {
             QMessageBox::critical(this, "Daemon", "Could not start daemon.");
             m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
@@ -669,6 +678,9 @@ void MainWindow::applySelectedImage(const QString &path) {
         return;
     }
 
+    config_t cfg;
+    config_load(&cfg);
+
     backend_t b = preferredBackendFor(path);
     if (!backend_available(b)) {
         updateStatus(QString("Backend not available: %1").arg(backend_to_string(b)));
@@ -676,7 +688,8 @@ void MainWindow::applySelectedImage(const QString &path) {
     }
 
     QByteArray mode = m_modeCombo->currentText().toUtf8();
-    if (set_wallpaper(b, path.toUtf8().constData(), mode.constData()) != 0) {
+    if (set_wallpaper(b, path.toUtf8().constData(), mode.constData(),
+                      cfg.cache_quality) != 0) {
         updateStatus("Error applying wallpaper");
         return;
     }
@@ -688,8 +701,6 @@ void MainWindow::applySelectedImage(const QString &path) {
         if (wallust_available()) {
             wallust_run(path.toUtf8().constData());
         }
-        config_t cfg;
-        config_load(&cfg);
         wallust_hook_run(cfg.wallust_hook, path.toUtf8().constData());
         if (wallust_available()) {
             updateStatus(QString("Applied with wallust: %1").arg(QFileInfo(path).fileName()));

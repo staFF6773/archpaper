@@ -436,41 +436,82 @@ static void get_image_resolution(const char *path, int *width, int *height) {
     }
 }
 
-static void pick_target_resolution(int *target_w, int *target_h) {
-    int mon_w = 0, mon_h = 0;
-    detect_monitor_resolution(&mon_w, &mon_h);
-    int gpu = detect_gpu_vendor();
-
-    if (gpu == GPU_NVIDIA || mon_w <= 0 || mon_h <= 0) {
-        *target_w = 1280;
-        *target_h = 720;
-        return;
-    }
-
-    if (mon_w > 1920 || mon_h > 1080) {
-        *target_w = 1920;
-        *target_h = 1080;
-        return;
-    }
-
-    *target_w = mon_w;
-    *target_h = mon_h;
+const char *cache_quality_from_string(const char *s) {
+    if (!s) return "monitor";
+    if (strcasecmp(s, "original") == 0) return "original";
+    if (strcasecmp(s, "low") == 0) return "low";
+    return "monitor";
 }
 
-static const char *cached_video_path(const char *path) {
+static int quality_is_original(const char *quality) {
+    return strcmp(cache_quality_from_string(quality), "original") == 0;
+}
+
+/* Clamp the target to a sane maximum so we don't try to create unusably huge
+ * caches, but never go below 1920x1080 unless the quality mode explicitly asks
+ * for low-quality downscaling. */
+static void pick_target_resolution(int *target_w, int *target_h, const char *quality) {
+    int mon_w = 0, mon_h = 0;
+    detect_monitor_resolution(&mon_w, &mon_h);
+
+    const char *q = cache_quality_from_string(quality);
+
+    if (strcmp(q, "low") == 0) {
+        /* Legacy behaviour: aggressive downscale. */
+        if (mon_w <= 0 || mon_h <= 0) {
+            *target_w = 1280;
+            *target_h = 720;
+            return;
+        }
+        if (mon_w > 1920 || mon_h > 1080) {
+            *target_w = 1920;
+            *target_h = 1080;
+            return;
+        }
+        *target_w = mon_w;
+        *target_h = mon_h;
+        return;
+    }
+
+    /* Default "monitor" quality: use the detected monitor resolution.
+     * Fall back to 1920x1080 only if detection fails, and never limit
+     * high-DPI monitors to 1080p. */
+    if (mon_w > 0 && mon_h > 0) {
+        *target_w = mon_w;
+        *target_h = mon_h;
+        return;
+    }
+
+    *target_w = 1920;
+    *target_h = 1080;
+}
+
+static int fits_target(int w, int h, int target_w, int target_h) {
+    /* When the target is the monitor size a video/image that is within a few
+     * percent of the target is also fine; transcoding is only worth it for
+     * clearly oversized files. */
+    if (w <= 0 || h <= 0 || target_w <= 0 || target_h <= 0)
+        return 0;
+    return w <= target_w && h <= target_h;
+}
+
+static const char *cached_video_path(const char *path, const char *quality) {
     static char cache_path[4096];
     struct stat st;
     if (!cmd_exists("ffmpeg") || stat(path, &st) != 0)
+        return path;
+
+    if (quality_is_original(quality))
         return path;
 
     int vid_w = 0, vid_h = 0;
     get_video_resolution(path, &vid_w, &vid_h);
 
     int target_w, target_h;
-    pick_target_resolution(&target_w, &target_h);
+    pick_target_resolution(&target_w, &target_h, quality);
 
     /* No need to transcode if the video already fits inside the target box. */
-    if (vid_w > 0 && vid_h > 0 && vid_w <= target_w && vid_h <= target_h)
+    if (fits_target(vid_w, vid_h, target_w, target_h))
         return path;
 
     unsigned long h = fnv1a_hash(path, 0);
@@ -489,10 +530,13 @@ static const char *cached_video_path(const char *path) {
         return path;
     prune_cache_dir(cache_dir);
 
+    /* Use a better scaler and higher quality than before. CRF 20 keeps the
+     * video crisp; lanczos looks much better than fast_bilinear for downscaling.
+     * We keep fps capped at the source frame rate rather than forcing 30. */
     char ffmpeg_cmd[8192];
     snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
-             "ffmpeg -y -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease:flags=fast_bilinear,fps=30' "
-             "-c:v libx264 -preset ultrafast -crf 28 -an -movflags +faststart '%s' >/dev/null 2>&1",
+             "ffmpeg -y -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos' "
+             "-c:v libx264 -preset medium -crf 20 -an -movflags +faststart '%s' >/dev/null 2>&1",
              path, target_w, target_h, cache_path);
 
     if (system(ffmpeg_cmd) == 0 && file_exists(cache_path))
@@ -501,20 +545,23 @@ static const char *cached_video_path(const char *path) {
     return path;
 }
 
-static const char *cached_animated_path(const char *path) {
+static const char *cached_animated_path(const char *path, const char *quality) {
     static char cache_path[4096];
     struct stat st;
     if (!cmd_exists("ffmpeg") || stat(path, &st) != 0)
+        return path;
+
+    if (quality_is_original(quality))
         return path;
 
     int img_w = 0, img_h = 0;
     get_image_resolution(path, &img_w, &img_h);
 
     int target_w, target_h;
-    pick_target_resolution(&target_w, &target_h);
+    pick_target_resolution(&target_w, &target_h, quality);
 
     /* If the animated image already fits, send it as-is. */
-    if (img_w > 0 && img_h > 0 && img_w <= target_w && img_h <= target_h)
+    if (fits_target(img_w, img_h, target_w, target_h))
         return path;
 
     unsigned long h = fnv1a_hash(path, 0);
@@ -542,12 +589,14 @@ static const char *cached_animated_path(const char *path) {
     if (out_ext[0] == 'w') { /* webp -> animated webp */
         snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
                  "ffmpeg -y -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos' "
-                 "-loop 0 -c:v libwebp -lossless 0 -qscale 80 -an '%s' >/dev/null 2>&1",
+                 "-loop 0 -c:v libwebp -lossless 0 -qscale 90 -an '%s' >/dev/null 2>&1",
                  path, target_w, target_h, cache_path);
     } else { /* gif -> resized gif preserving animation */
+        /* Use a 256-color palette (the GIF maximum) instead of 128 for
+         * noticeably smoother color reproduction. */
         snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
                  "ffmpeg -y -i '%s' -vf 'fps=30,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"
-                 "split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer' "
+                 "split[s0][s1];[s0]palettegen=max_colors=256[p];[s1][p]paletteuse=dither=bayer' "
                  "-loop 0 -c:v gif -an '%s' >/dev/null 2>&1",
                  path, target_w, target_h, cache_path);
     }
@@ -576,13 +625,14 @@ static void build_mpvpaper_options(char *buf, size_t len, const char *mode) {
     }
 }
 
-static int set_mpvpaper(const char *path, const char *mode) {
+static int set_mpvpaper(const char *path, const char *mode, const char *quality) {
     /* mpvpaper [options] <monitor> <path>; '*' applies to all monitors.
-     * For high-res videos on NVIDIA/weak GPUs, transcode to a smaller copy
-     * first so mpvpaper doesn't have to decode 1440p/4K@60 in software.
+     * For high-res videos on weak GPUs, transcode to a smaller copy first so
+     * mpvpaper doesn't have to decode 1440p/4K@60 in software. The user can
+     * disable this with cache_quality=original.
      * run_fork() already backgrounds the process, so avoid mpvpaper's own
      * --fork which leaves orphan mpv children that cannot be killed cleanly. */
-    const char *actual = cached_video_path(path);
+    const char *actual = cached_video_path(path, quality);
     static char options[256];
     build_mpvpaper_options(options, sizeof(options), mode);
 
@@ -613,37 +663,37 @@ static int ensure_awww_daemon(void) {
     return 0;
 }
 
-static int set_awww(const char *path, const char *mode) {
+static int set_awww(const char *path, const char *mode, const char *quality) {
     /* awww requires awww-daemon running; start it if the user hasn't already. */
     if (ensure_awww_daemon() != 0)
         return 1;
 
-    const char *actual = cached_animated_path(path);
+    const char *actual = cached_animated_path(path, quality);
     const char *resize = map_awww_mode(mode);
     const char *argv[] = {SWWW_CMD, "img", "--transition-type", "none", "--resize", resize, actual, NULL};
     return run_fork(argv);
 }
 
-const char *backend_optimized_path(const char *path) {
+const char *backend_optimized_path(const char *path, const char *quality) {
     if (!path || !file_exists(path))
         return path;
 
     if (is_video(path))
-        return cached_video_path(path);
+        return cached_video_path(path, quality);
     if (is_animated_image(path))
-        return cached_animated_path(path);
+        return cached_animated_path(path, quality);
     return path;
 }
 
-int set_wallpaper(backend_t b, const char *path, const char *mode) {
+int set_wallpaper(backend_t b, const char *path, const char *mode, const char *quality) {
     if (!path || !file_exists(path)) return 1;
 
     kill_wallpaper_backends();
 
     switch (b) {
         case BACKEND_HYPRPAPER: return set_hyprpaper(path);
-        case BACKEND_MPVPPAPER: return set_mpvpaper(path, mode);
-        case BACKEND_SWWW: return set_awww(path, mode);
+        case BACKEND_MPVPPAPER: return set_mpvpaper(path, mode, quality);
+        case BACKEND_SWWW: return set_awww(path, mode, quality);
         default: return set_swaybg(path, mode);
     }
 }

@@ -48,6 +48,8 @@ void config_default(config_t *cfg) {
     cfg->wallust_enabled = 0;
     cfg->wallust_hook[0] = '\0';
     cfg->daemon_interval = 300;
+    strncpy(cfg->cache_quality, "monitor", sizeof(cfg->cache_quality) - 1);
+    cfg->cache_quality[sizeof(cfg->cache_quality) - 1] = '\0';
 }
 
 static int ensure_dir(const char *path) {
@@ -105,6 +107,9 @@ int config_load(config_t *cfg) {
         } else if (strncmp(line, "daemon_interval=", 16) == 0) {
             cfg->daemon_interval = atoi(line + 16);
             if (cfg->daemon_interval <= 0) cfg->daemon_interval = 300;
+        } else if (strncmp(line, "cache_quality=", 14) == 0) {
+            strncpy(cfg->cache_quality, line + 14, sizeof(cfg->cache_quality) - 1);
+            cfg->cache_quality[sizeof(cfg->cache_quality) - 1] = '\0';
         }
     }
     fclose(f);
@@ -122,6 +127,7 @@ int config_save(const config_t *cfg) {
     fprintf(f, "wallust=%s\n", cfg->wallust_enabled ? "true" : "false");
     fprintf(f, "wallust_hook=%s\n", cfg->wallust_hook);
     fprintf(f, "daemon_interval=%d\n", cfg->daemon_interval > 0 ? cfg->daemon_interval : 300);
+    fprintf(f, "cache_quality=%s\n", cfg->cache_quality[0] ? cfg->cache_quality : "monitor");
     fprintf(f, "last=%s\n", cfg->last_wallpaper);
 
     for (int i = 0; i < cfg->folder_count; i++) {

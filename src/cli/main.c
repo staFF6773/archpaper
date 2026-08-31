@@ -114,7 +114,7 @@ int archpaper_cli(int argc, char *argv[]) {
         cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
         config_save(&cfg);
 
-        int r = set_wallpaper(backend, path, mode);
+        int r = set_wallpaper(backend, path, mode, cfg.cache_quality);
         if (r == 0) {
             run_wallust_theme(wallust_enabled, path,
                               wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook);
@@ -159,7 +159,7 @@ int archpaper_cli(int argc, char *argv[]) {
         cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
         config_save(&cfg);
 
-        int r = set_wallpaper(backend, img, mode);
+        int r = set_wallpaper(backend, img, mode, cfg.cache_quality);
         if (r == 0) {
             run_wallust_theme(wallust_enabled, img,
                               wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook);
@@ -194,7 +194,8 @@ int archpaper_cli(int argc, char *argv[]) {
                backend_to_string(backend), interval,
                wallust_enabled ? "yes" : "no", dir);
         const char *wallust_hook = wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook;
-        return daemonize_random(dir, interval, backend, mode, wallust_enabled, wallust_hook);
+        return daemonize_random(dir, interval, backend, mode, wallust_enabled, wallust_hook,
+                                cfg.cache_quality);
 
     } else if (strcmp(command, "status") == 0) {
         printf("Active backend:   %s\n", backend_to_string(backend));

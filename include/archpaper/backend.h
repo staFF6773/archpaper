@@ -31,14 +31,24 @@ int backend_available(backend_t b);
  * when the file type is unsupported by that backend. */
 backend_t select_backend_for_path(const char *path, backend_t preferred);
 
-/* Apply a wallpaper with the selected backend. */
-int set_wallpaper(backend_t b, const char *path, const char *mode);
+/* Translate a cache quality string to one of "original", "monitor" or "low".
+ * Unknown or NULL values default to "monitor". */
+const char *cache_quality_from_string(const char *s);
+
+/* Apply a wallpaper with the selected backend.
+ * quality controls whether oversized videos/animations are transcoded:
+ *   "original" -> never transcode, use the original file at full resolution.
+ *   "monitor"  -> transcode only when larger than the monitor (default).
+ *   "low"      -> keep the old aggressive 1080p/720p downscale.
+ * Passing NULL defaults to "monitor". */
+int set_wallpaper(backend_t b, const char *path, const char *mode, const char *quality);
 
 /* Return the best path to use for previews/GUI thumbnails. For oversized
  * videos or animated images this is the cached, resized copy instead of the
  * original file. The returned pointer points to internal static storage and
- * is only valid until the next call. */
-const char *backend_optimized_path(const char *path);
+ * is only valid until the next call.
+ * quality semantics are the same as set_wallpaper(). */
+const char *backend_optimized_path(const char *path, const char *quality);
 
 /* Remove existing background processes. */
 int clear_wallpaper(void);
