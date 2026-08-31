@@ -35,9 +35,9 @@ char *expand_path(const char *path) {
 
     const char *home = get_home();
     size_t len = strlen(home) + strlen(path);
-    char *out = malloc(len);
+    char *out = malloc(len + 1);
     if (!out) return NULL;
-    snprintf(out, len, "%s%s", home, path + 1);
+    snprintf(out, len + 1, "%s%s", home, path + 1);
     return out;
 }
 

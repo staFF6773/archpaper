@@ -13,6 +13,7 @@
 #include "archpaper/backend.h"
 #include "archpaper/utils.h"
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,6 +149,24 @@ static const char *map_swaybg_mode(const char *mode) {
     if (strcasecmp(mode, "center") == 0) return "center";
     if (strcasecmp(mode, "tile") == 0) return "tile";
     return "fill";
+}
+
+static const char *map_awww_mode(const char *mode) {
+    if (!mode) return "crop";
+    if (strcasecmp(mode, "fill") == 0) return "crop";
+    if (strcasecmp(mode, "fit") == 0) return "fit";
+    if (strcasecmp(mode, "stretch") == 0) return "stretch";
+    if (strcasecmp(mode, "center") == 0) return "no";
+    return "crop"; /* tile and unknown values fallback to fill/crop */
+}
+
+static const char *map_mpvpaper_mode_options(const char *mode) {
+    if (!mode) return "";
+    if (strcasecmp(mode, "fill") == 0) return " panscan=1.0";
+    if (strcasecmp(mode, "fit") == 0) return "";
+    if (strcasecmp(mode, "stretch") == 0) return " keepaspect=no";
+    if (strcasecmp(mode, "center") == 0) return " video-unscaled=yes";
+    return " panscan=1.0"; /* tile fallback to fill */
 }
 
 static int run_fork(const char *argv[]) {
@@ -308,57 +327,173 @@ static unsigned long fnv1a_hash(const char *s, unsigned long seed) {
     return h;
 }
 
+/* ----------------------------------------------------------------------
+ * Cache helpers
+ * ---------------------------------------------------------------------- */
+
+#define CACHE_MAX_FILES 50
+#define CACHE_MAX_BYTES (2LL * 1024 * 1024 * 1024) /* 2 GiB */
+
+struct cache_entry {
+    char path[4096];
+    off_t size;
+    time_t mtime;
+};
+
+static int cache_entry_cmp(const void *a, const void *b) {
+    const struct cache_entry *ea = a;
+    const struct cache_entry *eb = b;
+    if (ea->mtime < eb->mtime) return 1;
+    if (ea->mtime > eb->mtime) return -1;
+    return 0;
+}
+
+static void prune_cache_dir(const char *cache_dir) {
+    DIR *d = opendir(cache_dir);
+    if (!d) return;
+
+    struct cache_entry *entries = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+    struct dirent *ent;
+
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+
+        char full[4096];
+        snprintf(full, sizeof(full), "%s/%s", cache_dir, ent->d_name);
+        struct stat st;
+        if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+
+        if (count == cap) {
+            cap = cap ? cap * 2 : 16;
+            struct cache_entry *tmp = realloc(entries, cap * sizeof(*entries));
+            if (!tmp) break;
+            entries = tmp;
+        }
+        strncpy(entries[count].path, full, sizeof(entries[count].path) - 1);
+        entries[count].path[sizeof(entries[count].path) - 1] = '\0';
+        entries[count].size = st.st_size;
+        entries[count].mtime = st.st_mtime;
+        count++;
+    }
+    closedir(d);
+
+    if (count == 0) {
+        free(entries);
+        return;
+    }
+
+    qsort(entries, count, sizeof(*entries), cache_entry_cmp);
+
+    off_t total = 0;
+    for (size_t i = 0; i < count; i++) total += entries[i].size;
+
+    /* First drop older files over the file limit. */
+    for (size_t i = CACHE_MAX_FILES; i < count; i++) {
+        total -= entries[i].size;
+        unlink(entries[i].path);
+    }
+    if (count > CACHE_MAX_FILES)
+        count = CACHE_MAX_FILES;
+
+    /* Then, if still over the byte cap, delete oldest files first. */
+    for (size_t i = count; i > 0 && total > CACHE_MAX_BYTES; i--) {
+        total -= entries[i - 1].size;
+        unlink(entries[i - 1].path);
+    }
+
+    free(entries);
+}
+
+static const char *cache_dir_for(const char *subdir) {
+    static char dir[4096];
+    const char *home = getenv("HOME");
+    if (!home) home = ".";
+    snprintf(dir, sizeof(dir), "%s/.cache/archpaper/%s", home, subdir);
+    return dir;
+}
+
+static int ensure_cache_dir(const char *cache_dir) {
+    char mkdir_cmd[4096];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p '%s'", cache_dir);
+    return system(mkdir_cmd);
+}
+
+static void get_image_resolution(const char *path, int *width, int *height) {
+    *width = 0;
+    *height = 0;
+    if (!cmd_exists("ffprobe")) return;
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "ffprobe -v error -select_streams v:0 -show_entries stream=width,height "
+             "-of csv=s=x:p=0 '%s' 2>/dev/null", path);
+
+    char buf[64];
+    if (run_shell_output(cmd, buf, sizeof(buf)) == 0) {
+        sscanf(buf, "%dx%d", width, height);
+    }
+}
+
+static void pick_target_resolution(int *target_w, int *target_h) {
+    int mon_w = 0, mon_h = 0;
+    detect_monitor_resolution(&mon_w, &mon_h);
+    int gpu = detect_gpu_vendor();
+
+    if (gpu == GPU_NVIDIA || mon_w <= 0 || mon_h <= 0) {
+        *target_w = 1280;
+        *target_h = 720;
+        return;
+    }
+
+    if (mon_w > 1920 || mon_h > 1080) {
+        *target_w = 1920;
+        *target_h = 1080;
+        return;
+    }
+
+    *target_w = mon_w;
+    *target_h = mon_h;
+}
+
 static const char *cached_video_path(const char *path) {
     static char cache_path[4096];
     struct stat st;
     if (!cmd_exists("ffmpeg") || stat(path, &st) != 0)
         return path;
 
-    int mon_w = 0, mon_h = 0;
     int vid_w = 0, vid_h = 0;
-    detect_monitor_resolution(&mon_w, &mon_h);
     get_video_resolution(path, &vid_w, &vid_h);
-    int gpu = detect_gpu_vendor();
 
-    /* Pick a target width that won't melt the CPU. NVIDIA on Wayland has no
-     * working hwaccel in most setups, so go aggressive. For Intel/AMD hwaccel
-     * usually works, so we can keep the monitor resolution. */
-    int target_w = mon_w;
-    if (gpu == GPU_NVIDIA || target_w <= 0) {
-        target_w = 1280; /* 720p for safety */
-    } else if (target_w > 1920) {
-        target_w = 1920; /* cap at 1080p for animated wallpapers */
-    }
+    int target_w, target_h;
+    pick_target_resolution(&target_w, &target_h);
 
-    /* No need to transcode if the video is already small enough. */
-    if (vid_w > 0 && vid_w <= target_w) {
+    /* No need to transcode if the video already fits inside the target box. */
+    if (vid_w > 0 && vid_h > 0 && vid_w <= target_w && vid_h <= target_h)
         return path;
-    }
 
     unsigned long h = fnv1a_hash(path, 0);
     h ^= (unsigned long)st.st_mtime;
     h *= 1099511628211ULL;
     h ^= (unsigned long)target_w;
+    h ^= (unsigned long)target_h << 16;
 
-    const char *home = getenv("HOME");
-    if (!home) home = ".";
-    char cache_dir[4096];
-    snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/archpaper/videos", home);
-    snprintf(cache_path, sizeof(cache_path), "%s/%016lx_%dp.mp4", cache_dir, h, target_w);
+    const char *cache_dir = cache_dir_for("videos");
+    snprintf(cache_path, sizeof(cache_path), "%s/%016lx_%dx%d.mp4", cache_dir, h, target_w, target_h);
 
     if (file_exists(cache_path))
         return cache_path;
 
-    char mkdir_cmd[4096];
-    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p '%s'", cache_dir);
-    if (system(mkdir_cmd) != 0)
+    if (ensure_cache_dir(cache_dir) != 0)
         return path;
+    prune_cache_dir(cache_dir);
 
     char ffmpeg_cmd[8192];
     snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
-             "ffmpeg -y -i '%s' -vf 'scale=%d:-2:flags=fast_bilinear,fps=30' "
-             "-c:v libx264 -preset ultrafast -crf 28 -an -movflags +faststart \"%s\" >/dev/null 2>&1",
-             path, target_w, cache_path);
+             "ffmpeg -y -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease:flags=fast_bilinear,fps=30' "
+             "-c:v libx264 -preset ultrafast -crf 28 -an -movflags +faststart '%s' >/dev/null 2>&1",
+             path, target_w, target_h, cache_path);
 
     if (system(ffmpeg_cmd) == 0 && file_exists(cache_path))
         return cache_path;
@@ -366,12 +501,71 @@ static const char *cached_video_path(const char *path) {
     return path;
 }
 
-static void build_mpvpaper_options(char *buf, size_t len) {
+static const char *cached_animated_path(const char *path) {
+    static char cache_path[4096];
+    struct stat st;
+    if (!cmd_exists("ffmpeg") || stat(path, &st) != 0)
+        return path;
+
+    int img_w = 0, img_h = 0;
+    get_image_resolution(path, &img_w, &img_h);
+
+    int target_w, target_h;
+    pick_target_resolution(&target_w, &target_h);
+
+    /* If the animated image already fits, send it as-is. */
+    if (img_w > 0 && img_h > 0 && img_w <= target_w && img_h <= target_h)
+        return path;
+
+    unsigned long h = fnv1a_hash(path, 0);
+    h ^= (unsigned long)st.st_mtime;
+    h *= 1099511628211ULL;
+    h ^= (unsigned long)target_w;
+    h ^= (unsigned long)target_h << 16;
+
+    const char *cache_dir = cache_dir_for("animated");
+    const char *ext = file_extension(path);
+    const char *out_ext = "gif";
+    if (ext && strcasecmp(ext, "webp") == 0)
+        out_ext = "webp";
+
+    snprintf(cache_path, sizeof(cache_path), "%s/%016lx_%dx%d.%s", cache_dir, h, target_w, target_h, out_ext);
+
+    if (file_exists(cache_path))
+        return cache_path;
+
+    if (ensure_cache_dir(cache_dir) != 0)
+        return path;
+    prune_cache_dir(cache_dir);
+
+    char ffmpeg_cmd[8192];
+    if (out_ext[0] == 'w') { /* webp -> animated webp */
+        snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
+                 "ffmpeg -y -i '%s' -vf 'scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos' "
+                 "-loop 0 -c:v libwebp -lossless 0 -qscale 80 -an '%s' >/dev/null 2>&1",
+                 path, target_w, target_h, cache_path);
+    } else { /* gif -> resized gif preserving animation */
+        snprintf(ffmpeg_cmd, sizeof(ffmpeg_cmd),
+                 "ffmpeg -y -i '%s' -vf 'fps=30,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"
+                 "split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer' "
+                 "-loop 0 -c:v gif -an '%s' >/dev/null 2>&1",
+                 path, target_w, target_h, cache_path);
+    }
+
+    if (system(ffmpeg_cmd) == 0 && file_exists(cache_path))
+        return cache_path;
+
+    return path;
+}
+
+static void build_mpvpaper_options(char *buf, size_t len, const char *mode) {
     int gpu = detect_gpu_vendor();
+    const char *mode_opts = map_mpvpaper_mode_options(mode);
 
     /* Base options that reduce CPU usage even when hwaccel works. */
     snprintf(buf, len,
-             "no-audio loop-file=inf vd-lavc-threads=2 scale=bilinear");
+             "no-audio loop-file=inf vd-lavc-threads=2 scale=bilinear%s",
+             mode_opts);
 
     /* Only trust hardware decoding on Intel/AMD; NVIDIA on Wayland usually fails
      * to initialize vaapi/vdpau and falls back to CPU anyway, while spamming
@@ -382,7 +576,7 @@ static void build_mpvpaper_options(char *buf, size_t len) {
     }
 }
 
-static int set_mpvpaper(const char *path) {
+static int set_mpvpaper(const char *path, const char *mode) {
     /* mpvpaper [options] <monitor> <path>; '*' applies to all monitors.
      * For high-res videos on NVIDIA/weak GPUs, transcode to a smaller copy
      * first so mpvpaper doesn't have to decode 1440p/4K@60 in software.
@@ -390,7 +584,7 @@ static int set_mpvpaper(const char *path) {
      * --fork which leaves orphan mpv children that cannot be killed cleanly. */
     const char *actual = cached_video_path(path);
     static char options[256];
-    build_mpvpaper_options(options, sizeof(options));
+    build_mpvpaper_options(options, sizeof(options), mode);
 
     const char *argv[] = {MPVPAPER_CMD, "-o", options, "*", actual, NULL};
     return run_fork(argv);
@@ -419,11 +613,14 @@ static int ensure_awww_daemon(void) {
     return 0;
 }
 
-static int set_awww(const char *path) {
+static int set_awww(const char *path, const char *mode) {
     /* awww requires awww-daemon running; start it if the user hasn't already. */
     if (ensure_awww_daemon() != 0)
         return 1;
-    const char *argv[] = {SWWW_CMD, "img", "--transition-type", "none", path, NULL};
+
+    const char *actual = cached_animated_path(path);
+    const char *resize = map_awww_mode(mode);
+    const char *argv[] = {SWWW_CMD, "img", "--transition-type", "none", "--resize", resize, actual, NULL};
     return run_fork(argv);
 }
 
@@ -434,8 +631,8 @@ int set_wallpaper(backend_t b, const char *path, const char *mode) {
 
     switch (b) {
         case BACKEND_HYPRPAPER: return set_hyprpaper(path);
-        case BACKEND_MPVPPAPER: return set_mpvpaper(path);
-        case BACKEND_SWWW: return set_awww(path);
+        case BACKEND_MPVPPAPER: return set_mpvpaper(path, mode);
+        case BACKEND_SWWW: return set_awww(path, mode);
         default: return set_swaybg(path, mode);
     }
 }

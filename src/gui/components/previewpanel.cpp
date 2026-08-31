@@ -25,6 +25,7 @@
 #include <QResizeEvent>
 #include <QStackedWidget>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -71,37 +72,46 @@ QPixmap roundPixmap(const QPixmap &source, int radius) {
 }
 
 QPixmap extractVideoThumbnail(const QString &path, const QSize &maxSize) {
-    QString tmpPath = QDir::temp().filePath(
-        QStringLiteral("archpaper_vthumb_%1.jpg").arg(qHash(path)));
+    QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/archpaper_vthumb_XXXXXX.jpg"));
+    tmp.setAutoRemove(true);
+    if (!tmp.open())
+        return QPixmap();
+    QString tmpPath = tmp.fileName();
+    tmp.close();
+
+    bool generated = false;
 
     QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (!ffmpeg.isEmpty()) {
         QStringList args;
-        args << QStringLiteral("-y") << QStringLiteral("-i") << path
+        args << QStringLiteral("-y")
              << QStringLiteral("-ss") << QStringLiteral("00:00:00.100")
+             << QStringLiteral("-i") << path
              << QStringLiteral("-vframes") << QStringLiteral("1")
-             << QStringLiteral("-q:v") << QStringLiteral("2") << tmpPath;
-        QProcess::execute(ffmpeg, args);
-    } else {
+             << QStringLiteral("-q:v") << QStringLiteral("2")
+             << tmpPath;
+        generated = (QProcess::execute(ffmpeg, args) == 0 && QFile::exists(tmpPath));
+    }
+
+    if (!generated) {
         QString mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
         if (!mpv.isEmpty()) {
             QStringList args;
             args << path << QStringLiteral("--no-audio") << QStringLiteral("--no-config")
                  << QStringLiteral("--frames=1") << (QStringLiteral("--o=") + tmpPath);
-            QProcess::execute(mpv, args);
+            generated = (QProcess::execute(mpv, args) == 0 && QFile::exists(tmpPath));
         }
     }
 
-    if (QFile::exists(tmpPath)) {
-        QPixmap pix(tmpPath);
-        if (!pix.isNull()) {
-            pix = pix.scaled(maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            QPixmap rounded = roundPixmap(pix, 16);
-            QFile::remove(tmpPath);
-            return rounded;
-        }
-    }
-    return QPixmap();
+    if (!generated)
+        return QPixmap();
+
+    QPixmap pix(tmpPath);
+    if (pix.isNull())
+        return QPixmap();
+
+    pix = pix.scaled(maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    return roundPixmap(pix, 16);
 }
 
 constexpr int PREVIEW_MARGIN = 24;
