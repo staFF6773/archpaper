@@ -15,7 +15,9 @@
 
 QT_BEGIN_NAMESPACE
 class QButtonGroup;
-class QToolButton;
+class QListWidget;
+class QPushButton;
+class QVBoxLayout;
 QT_END_NAMESPACE
 
 class NavSidebar : public QFrame {
@@ -28,24 +30,45 @@ public:
     explicit NavSidebar(QWidget *parent = nullptr);
 
     Section currentSection() const;
-    bool settingsActive() const;
 
-public slots:
+    void setFolders(const QStringList &folders);
+    void addFolder(const QString &folder);
+    void removeFolder(int row);
+    QString selectedFolder() const;
+    QString folderAt(int row) const;
+    int folderCount() const;
+
     void setSection(Section section);
 
 signals:
     void sectionChanged(NavSidebar::Section section);
-    void settingsToggled(bool active);
+
+    void folderSelected(const QString &folder);
+    void folderAdded(const QString &folder);
+    void folderRemoved(int row);
 
 private slots:
-    void onSectionButtonToggled();
+    void onAddFolder();
+    void onRemoveFolder();
+    void onFolderSelectionChanged();
+    void onSectionToggled();
 
 private:
+    QPushButton *createNavButton(const QString &icon, const QString &text, Section section);
+    void rebuildFolderSection();
+
     QButtonGroup *m_group;
-    QToolButton *m_homeBtn;
-    QToolButton *m_favBtn;
-    QToolButton *m_recentBtn;
-    QToolButton *m_settingsBtn;
+    QVBoxLayout *m_layout;
+
+    QPushButton *m_homeBtn;
+    QPushButton *m_favBtn;
+    QPushButton *m_recentBtn;
+    QPushButton *m_settingsBtn;
+
+    QListWidget *m_folderList;
+    QPushButton *m_addFolderBtn;
+    QPushButton *m_removeFolderBtn;
+
     Section m_currentSection = Home;
 };
 

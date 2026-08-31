@@ -30,8 +30,8 @@
 
 namespace {
 
-constexpr int THUMB_WIDTH = 160;
-constexpr int THUMB_HEIGHT = 90;
+constexpr int THUMB_WIDTH = 240;
+constexpr int THUMB_HEIGHT = 135;
 
 QString ext(const QString &path) {
     return QFileInfo(path).suffix().toLower();
@@ -68,32 +68,21 @@ WallpaperGrid::WallpaperGrid(QWidget *parent)
 void WallpaperGrid::setupUi() {
     setObjectName("wallpaperGrid");
 
-    auto *header = new QHBoxLayout;
-    header->setContentsMargins(0, 0, 0, 0);
-    header->setSpacing(10);
-
-    auto *searchLabel = new QLabel("Search:");
-    searchLabel->setObjectName("mutedLabel");
-
     m_filter = new QLineEdit(this);
-    m_filter->setObjectName("searchEdit");
-    m_filter->setPlaceholderText("Filter by name...");
-    m_filter->setClearButtonEnabled(true);
+    m_filter->setObjectName("internalFilter");
+    m_filter->hide();
     connect(m_filter, &QLineEdit::textChanged, this, &WallpaperGrid::onFilterTextChanged);
-
-    header->addWidget(searchLabel);
-    header->addWidget(m_filter, 1);
 
     m_list = new QListWidget(this);
     m_list->setObjectName("imagesList");
     m_list->setViewMode(QListView::IconMode);
     m_list->setIconSize(QSize(THUMB_WIDTH, THUMB_HEIGHT));
-    m_list->setSpacing(10);
+    m_list->setSpacing(14);
     m_list->setWrapping(true);
     m_list->setResizeMode(QListView::Adjust);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_list->setGridSize(QSize(THUMB_WIDTH + 24, THUMB_HEIGHT + 44));
-    m_list->setWordWrap(true);
+    m_list->setGridSize(QSize(THUMB_WIDTH + 32, THUMB_HEIGHT + 56));
+    m_list->setWordWrap(false);
     m_list->setUniformItemSizes(true);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -104,10 +93,10 @@ void WallpaperGrid::setupUi() {
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(10);
-    layout->addLayout(header);
+    layout->setSpacing(0);
     layout->addWidget(m_list, 1);
 }
+
 
 void WallpaperGrid::clear() {
     m_list->clear();

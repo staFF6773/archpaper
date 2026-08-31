@@ -11,7 +11,6 @@
 #include "settingspanel.h"
 
 #include <QCheckBox>
-#include <QComboBox>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -33,37 +32,6 @@ void SettingsPanel::setupUi() {
 
     auto *title = new QLabel("<b style='font-size:18px; color:#f0f6fc;'>Settings</b>");
     title->setObjectName("panelTitle");
-
-    /* Backend & mode */
-    auto *backendModeGroup = new QGroupBox("Backend & Mode");
-    backendModeGroup->setObjectName("settingsGroup");
-
-    auto *backendLabel = new QLabel("Backend:");
-    backendLabel->setObjectName("mutedLabel");
-    m_backendCombo = new QComboBox;
-    m_backendCombo->addItem("swaybg");
-    m_backendCombo->addItem("hyprpaper");
-    m_backendCombo->addItem("mpvpaper");
-    m_backendCombo->addItem("awww");
-    m_backendCombo->setToolTip("Backend used to apply wallpapers");
-    connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsPanel::backendChanged);
-
-    auto *modeLabel = new QLabel("Mode:");
-    modeLabel->setObjectName("mutedLabel");
-    m_modeCombo = new QComboBox;
-    m_modeCombo->addItems({"fill", "fit", "stretch", "center", "tile"});
-    m_modeCombo->setToolTip("Image scaling mode");
-    connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsPanel::modeChanged);
-
-    auto *backendModeLayout = new QGridLayout(backendModeGroup);
-    backendModeLayout->setSpacing(10);
-    backendModeLayout->addWidget(backendLabel, 0, 0);
-    backendModeLayout->addWidget(m_backendCombo, 0, 1);
-    backendModeLayout->addWidget(modeLabel, 1, 0);
-    backendModeLayout->addWidget(m_modeCombo, 1, 1);
-    backendModeLayout->setColumnStretch(2, 1);
 
     /* Wallust */
     auto *wallustGroup = new QGroupBox("Wallust");
@@ -127,28 +95,9 @@ void SettingsPanel::setupUi() {
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
     layout->addWidget(title);
-    layout->addWidget(backendModeGroup);
     layout->addWidget(wallustGroup);
     layout->addWidget(daemonGroup);
     layout->addStretch(1);
-}
-
-void SettingsPanel::setBackend(int index) {
-    m_backendCombo->setCurrentIndex(index);
-}
-
-int SettingsPanel::backend() const {
-    return m_backendCombo->currentIndex();
-}
-
-void SettingsPanel::setMode(const QString &mode) {
-    int idx = m_modeCombo->findText(mode, Qt::MatchFixedString);
-    if (idx < 0) idx = 0;
-    m_modeCombo->setCurrentIndex(idx);
-}
-
-QString SettingsPanel::mode() const {
-    return m_modeCombo->currentText();
 }
 
 void SettingsPanel::setWallustEnabled(bool enabled) {

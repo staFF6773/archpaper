@@ -15,7 +15,6 @@
 
 QT_BEGIN_NAMESPACE
 class QCheckBox;
-class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -26,12 +25,6 @@ class SettingsPanel : public QFrame {
 
 public:
     explicit SettingsPanel(QWidget *parent = nullptr);
-
-    void setBackend(int index);
-    int backend() const;
-
-    void setMode(const QString &mode);
-    QString mode() const;
 
     void setWallustEnabled(bool enabled);
     bool wallustEnabled() const;
@@ -45,8 +38,6 @@ public:
     void setDaemonRunning(bool running);
 
 signals:
-    void backendChanged(int index);
-    void modeChanged(int index);
     void settingsChanged();
     void daemonRequested(bool start);
 
@@ -57,8 +48,6 @@ private slots:
 private:
     void setupUi();
 
-    QComboBox *m_backendCombo;
-    QComboBox *m_modeCombo;
     QCheckBox *m_wallustCheck;
     QLineEdit *m_wallustHookEdit;
     QPushButton *m_wallustHookBrowseButton;

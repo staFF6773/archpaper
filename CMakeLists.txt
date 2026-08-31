@@ -35,8 +35,6 @@ add_executable(archpaper
     src/gui/mainwindow.h
     src/gui/components/navsidebar.cpp
     src/gui/components/navsidebar.h
-    src/gui/components/folderspanel.cpp
-    src/gui/components/folderspanel.h
     src/gui/components/wallpapergrid.cpp
     src/gui/components/wallpapergrid.h
     src/gui/components/previewpanel.cpp

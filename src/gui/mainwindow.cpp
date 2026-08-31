@@ -17,15 +17,15 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QToolButton>
 #include <QVBoxLayout>
 
-#include "components/folderspanel.h"
 #include "components/navsidebar.h"
 #include "components/previewpanel.h"
 #include "components/settingspanel.h"
@@ -78,11 +78,7 @@ bool isVideo(const QString &path) {
     return e == "mp4" || e == "webm" || e == "mkv" || e == "mov" || e == "avi" || e == "ogv";
 }
 
-bool isAnimatedFile(const QString &path) {
-    return isAnimatedImage(path) || isVideo(path);
-}
-
-}
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -102,10 +98,29 @@ void MainWindow::applyStyleSheet() {
     }
 }
 
+static QPushButton *createToolButton(const QString &text, const QString &tooltip,
+                                     const QString &objName, bool checkable = false) {
+    auto *btn = new QPushButton(text);
+    btn->setObjectName(objName);
+    btn->setToolTip(tooltip);
+    btn->setCheckable(checkable);
+    btn->setFixedSize(34, 34);
+    btn->setCursor(Qt::PointingHandCursor);
+    return btn;
+}
+
+static QFrame *createVSeparator(QWidget *parent) {
+    auto *line = new QFrame(parent);
+    line->setFrameShape(QFrame::VLine);
+    line->setObjectName("toolbarSeparator");
+    line->setFixedSize(1, 24);
+    return line;
+}
+
 void MainWindow::setupUi() {
     setWindowTitle("archpaper");
-    resize(1600, 900);
-    setMinimumSize(1280, 720);
+    resize(1400, 860);
+    setMinimumSize(1100, 680);
 
     applyStyleSheet();
 
@@ -119,31 +134,53 @@ void MainWindow::setupUi() {
     /* Sidebar */
     m_sidebar = new NavSidebar(this);
     connect(m_sidebar, &NavSidebar::sectionChanged, this, &MainWindow::onSectionChanged);
-    connect(m_sidebar, &NavSidebar::settingsToggled, this, &MainWindow::onSettingsToggled);
+    connect(m_sidebar, &NavSidebar::folderSelected, this, &MainWindow::onFolderSelected);
+    connect(m_sidebar, &NavSidebar::folderAdded, this, &MainWindow::onFolderAdded);
+    connect(m_sidebar, &NavSidebar::folderRemoved, this, &MainWindow::onFolderRemoved);
 
-    /* Right column */
-    auto *rightColumn = new QWidget;
-    auto *rightLayout = new QVBoxLayout(rightColumn);
-    rightLayout->setContentsMargins(12, 12, 12, 12);
-    rightLayout->setSpacing(12);
+    /* Central area */
+    auto *centralColumn = new QWidget;
+    auto *centralLayout = new QVBoxLayout(centralColumn);
+    centralLayout->setContentsMargins(12, 12, 12, 12);
+    centralLayout->setSpacing(10);
 
-    /* Top bar */
-    auto *topBar = new QFrame;
-    topBar->setObjectName("topBar");
-    auto *topBarLayout = new QHBoxLayout(topBar);
-    topBarLayout->setContentsMargins(14, 10, 14, 10);
-    topBarLayout->setSpacing(12);
+    /* Toolbar */
+    auto *toolbar = new QFrame;
+    toolbar->setObjectName("toolbar");
+    auto *tbLayout = new QHBoxLayout(toolbar);
+    tbLayout->setContentsMargins(14, 8, 14, 8);
+    tbLayout->setSpacing(8);
 
-    m_sectionTitle = new QLabel("<b style='font-size:18px; color:#f0f6fc;'>Home</b>");
+    m_applyBtn = createToolButton("\u25b6", "Apply selected wallpaper", "primaryToolButton", false);
+    m_randomBtn = createToolButton("\u21c4", "Pick a random wallpaper", "secondaryToolButton", false);
+    m_favoriteBtn = createToolButton("\u2606", "Toggle favorite", "favoriteToolButton", true);
+    m_clearBtn = createToolButton("\u2715", "Remove current wallpaper", "dangerToolButton", false);
+
+    connect(m_applyBtn, &QPushButton::clicked, this, &MainWindow::onApply);
+    connect(m_randomBtn, &QPushButton::clicked, this, &MainWindow::onRandom);
+    connect(m_favoriteBtn, &QPushButton::clicked, this, &MainWindow::onToggleFavorite);
+    connect(m_clearBtn, &QPushButton::clicked, this, &MainWindow::onClear);
+
+    m_filterEdit = new QLineEdit;
+    m_filterEdit->setObjectName("searchEdit");
+    m_filterEdit->setPlaceholderText("Filter...");
+    m_filterEdit->setClearButtonEnabled(true);
+    m_filterEdit->setMinimumWidth(180);
+    m_filterEdit->setMaximumWidth(260);
+    connect(m_filterEdit, &QLineEdit::textChanged, this, &MainWindow::onFilterTextChanged);
+
+    tbLayout->addWidget(m_applyBtn);
+    tbLayout->addWidget(m_randomBtn);
+    tbLayout->addWidget(m_favoriteBtn);
+    tbLayout->addWidget(m_clearBtn);
+    tbLayout->addWidget(createVSeparator(toolbar));
+    tbLayout->addWidget(m_filterEdit);
+    tbLayout->addStretch();
 
     auto *backendLabel = new QLabel("Backend:");
     backendLabel->setObjectName("mutedLabel");
     m_backendCombo = new QComboBox;
-    m_backendCombo->addItem("swaybg");
-    m_backendCombo->addItem("hyprpaper");
-    m_backendCombo->addItem("mpvpaper");
-    m_backendCombo->addItem("awww");
-    m_backendCombo->setToolTip("Backend used to apply the wallpaper");
+    m_backendCombo->addItems({"swaybg", "hyprpaper", "mpvpaper", "awww"});
     connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onBackendChanged);
 
@@ -151,34 +188,34 @@ void MainWindow::setupUi() {
     modeLabel->setObjectName("mutedLabel");
     m_modeCombo = new QComboBox;
     m_modeCombo->addItems({"fill", "fit", "stretch", "center", "tile"});
-    m_modeCombo->setToolTip("Image scaling mode");
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModeChanged);
 
-    topBarLayout->addWidget(m_sectionTitle);
-    topBarLayout->addSpacing(20);
-    topBarLayout->addStretch();
-    topBarLayout->addWidget(backendLabel);
-    topBarLayout->addWidget(m_backendCombo);
-    topBarLayout->addSpacing(12);
-    topBarLayout->addWidget(modeLabel);
-    topBarLayout->addWidget(m_modeCombo);
+    m_previewToggleBtn = createToolButton("\u29c9", "Toggle preview panel", "secondaryToolButton", true);
+    m_previewToggleBtn->setChecked(true);
+    connect(m_previewToggleBtn, &QPushButton::clicked, this, &MainWindow::onTogglePreview);
 
-    /* Pages */
+    m_daemonBtn = createToolButton("\u26a1", "Start/stop automatic wallpaper changes", "daemonToolButton", true);
+    connect(m_daemonBtn, &QPushButton::clicked, this, &MainWindow::onDaemonRequested);
+
+    tbLayout->addWidget(backendLabel);
+    tbLayout->addWidget(m_backendCombo);
+    tbLayout->addSpacing(10);
+    tbLayout->addWidget(modeLabel);
+    tbLayout->addWidget(m_modeCombo);
+    tbLayout->addWidget(createVSeparator(toolbar));
+    tbLayout->addWidget(m_previewToggleBtn);
+    tbLayout->addWidget(m_daemonBtn);
+
+    /* Content pages */
     m_pages = new QStackedWidget(this);
 
-    /* Gallery page */
-    m_galleryPage = new QWidget;
-    auto *galleryLayout = new QHBoxLayout(m_galleryPage);
-    galleryLayout->setContentsMargins(0, 0, 0, 0);
-    galleryLayout->setSpacing(0);
-
-    m_gallerySplitter = new QSplitter(Qt::Horizontal);
-
-    m_foldersPanel = new FoldersPanel;
-    connect(m_foldersPanel, &FoldersPanel::folderSelected, this, &MainWindow::onFolderSelected);
-    connect(m_foldersPanel, &FoldersPanel::folderAdded, this, &MainWindow::onFolderAdded);
-    connect(m_foldersPanel, &FoldersPanel::folderRemoved, this, &MainWindow::onFolderRemoved);
+    /* Library page: grid + preview */
+    m_libraryPage = new QWidget;
+    m_libraryPage->setObjectName("libraryPage");
+    auto *libraryLayout = new QHBoxLayout(m_libraryPage);
+    libraryLayout->setContentsMargins(0, 0, 0, 0);
+    libraryLayout->setSpacing(12);
 
     m_grid = new WallpaperGrid;
     connect(m_grid, &WallpaperGrid::imageSelected, this, &MainWindow::onImageSelected);
@@ -191,22 +228,15 @@ void MainWindow::setupUi() {
     connect(m_preview, &PreviewPanel::randomClicked, this, &MainWindow::onRandom);
     connect(m_preview, &PreviewPanel::clearClicked, this, &MainWindow::onClear);
 
-    m_gallerySplitter->addWidget(m_foldersPanel);
-    m_gallerySplitter->addWidget(m_grid);
-    m_gallerySplitter->addWidget(m_preview);
-    m_gallerySplitter->setStretchFactor(1, 1);
-    m_gallerySplitter->setHandleWidth(4);
-
-    galleryLayout->addWidget(m_gallerySplitter);
+    libraryLayout->addWidget(m_grid, 1);
+    libraryLayout->addWidget(m_preview);
 
     /* Settings page */
     m_settingsPanel = new SettingsPanel;
-    connect(m_settingsPanel, &SettingsPanel::backendChanged, this, &MainWindow::onBackendChanged);
-    connect(m_settingsPanel, &SettingsPanel::modeChanged, this, &MainWindow::onModeChanged);
     connect(m_settingsPanel, &SettingsPanel::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsPanel, &SettingsPanel::daemonRequested, this, &MainWindow::onDaemonRequested);
 
-    m_pages->addWidget(m_galleryPage);
+    m_pages->addWidget(m_libraryPage);
     m_pages->addWidget(m_settingsPanel);
 
     /* Status footer */
@@ -219,12 +249,12 @@ void MainWindow::setupUi() {
     statusLayout->addWidget(m_statusLabel);
     statusLayout->addStretch();
 
-    rightLayout->addWidget(topBar);
-    rightLayout->addWidget(m_pages, 1);
-    rightLayout->addWidget(statusBar);
+    centralLayout->addWidget(toolbar);
+    centralLayout->addWidget(m_pages, 1);
+    centralLayout->addWidget(statusBar);
 
     rootLayout->addWidget(m_sidebar);
-    rootLayout->addWidget(rightColumn, 1);
+    rootLayout->addWidget(centralColumn, 1);
 }
 
 void MainWindow::loadConfig() {
@@ -239,22 +269,14 @@ void MainWindow::loadConfig() {
         default: backendIndex = 0; break;
     }
     m_backendCombo->setCurrentIndex(backendIndex);
-    m_settingsPanel->setBackend(backendIndex);
 
     QString mode = QString::fromUtf8(cfg.mode);
     int modeIndex = m_modeCombo->findText(mode, Qt::MatchFixedString);
     if (modeIndex < 0) modeIndex = 0;
     m_modeCombo->setCurrentIndex(modeIndex);
-    m_settingsPanel->setMode(mode);
 
     m_settingsPanel->setWallustEnabled(cfg.wallust_enabled != 0);
-    if (wallust_available()) {
-        m_settingsPanel->setToolTip("Run 'wallust run' after applying the wallpaper");
-    } else {
-        m_settingsPanel->setToolTip("wallust is not installed; it will activate once installed");
-    }
     m_settingsPanel->setWallustHook(QString::fromUtf8(cfg.wallust_hook));
-
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
 
     loadFavorites();
@@ -271,8 +293,7 @@ void MainWindow::loadConfig() {
     }
     updateStatus(status);
 
-    /* loadFolders() already selected the first folder and loaded the grid. */
-    updateSectionTitle(NavSidebar::Home);
+    /* loadFolders() already selects the first folder and loads the grid. */
 }
 
 void MainWindow::saveCurrentConfig(const char *path) {
@@ -320,21 +341,20 @@ void MainWindow::loadFolders() {
         }
     }
 
-    m_foldersPanel->setFolders(folders);
-    onFolderSelected(m_foldersPanel->selectedFolder());
+    m_sidebar->setFolders(folders);
+    onFolderSelected(m_sidebar->selectedFolder());
 }
 
 void MainWindow::saveFolders() {
     config_t cfg;
     config_load(&cfg);
 
-    /* Clear existing folders. */
     for (int i = cfg.folder_count - 1; i >= 0; --i) {
         config_remove_folder(&cfg, i);
     }
 
-    for (int i = 0; i < m_foldersPanel->count(); i++) {
-        QByteArray folder = m_foldersPanel->folderAt(i).toUtf8();
+    for (int i = 0; i < m_sidebar->folderCount(); i++) {
+        QByteArray folder = m_sidebar->folderAt(i).toUtf8();
         config_add_folder(&cfg, folder.constData());
     }
 
@@ -406,65 +426,63 @@ bool MainWindow::isFavorite(const QString &path) const {
 
 void MainWindow::refreshFavoriteButton() {
     QString path = m_grid->selectedPath();
+    bool hasSelection = !path.isEmpty();
+    m_applyBtn->setEnabled(hasSelection);
+    m_favoriteBtn->setEnabled(hasSelection);
+
     if (path.isEmpty()) {
         m_preview->setIsFavorite(false);
+        m_favoriteBtn->setChecked(false);
+        m_favoriteBtn->setText("\u2606");
         return;
     }
-    m_preview->setIsFavorite(isFavorite(path));
+
+    bool favorite = isFavorite(path);
+    m_preview->setIsFavorite(favorite);
+    m_favoriteBtn->setChecked(favorite);
+    m_favoriteBtn->setText(favorite ? "\u2605" : "\u2606");
 }
 
-void MainWindow::setGallerySection(NavSidebar::Section section) {
+void MainWindow::onSectionChanged(NavSidebar::Section section) {
+    if (section == NavSidebar::Settings) {
+        m_pages->setCurrentIndex(SettingsPage);
+        m_daemonBtn->setChecked(m_daemonRunning);
+    } else {
+        m_pages->setCurrentIndex(LibraryPage);
+        setLibrarySection(section);
+    }
+}
+
+void MainWindow::setLibrarySection(NavSidebar::Section section) {
     m_currentSection = section;
-    m_pages->setCurrentIndex(GalleryPage);
 
     switch (section) {
         case NavSidebar::Home:
-            m_foldersPanel->show();
             if (!m_currentFolder.isEmpty() && QDir(m_currentFolder).exists()) {
                 m_grid->loadFromFolder(m_currentFolder);
-            } else if (!m_foldersPanel->selectedFolder().isEmpty()) {
-                m_grid->loadFromFolder(m_foldersPanel->selectedFolder());
+            } else if (!m_sidebar->selectedFolder().isEmpty()) {
+                onFolderSelected(m_sidebar->selectedFolder());
             }
             break;
         case NavSidebar::Favorites:
-            m_foldersPanel->hide();
             m_grid->setWallpapers(m_favoritePaths);
             break;
         case NavSidebar::Recent:
-            m_foldersPanel->hide();
             m_grid->setWallpapers(m_recentPaths);
             break;
         case NavSidebar::Settings:
             break;
     }
 
-    updateSectionTitle(section);
     refreshFavoriteButton();
-}
-
-void MainWindow::onSectionChanged(NavSidebar::Section section) {
-    setGallerySection(section);
-}
-
-void MainWindow::onSettingsToggled(bool active) {
-    if (active) {
-        m_pages->setCurrentIndex(SettingsPage);
-        updateSectionTitle(NavSidebar::Settings);
-    } else if (m_pages->currentIndex() != GalleryPage) {
-        setGallerySection(m_currentSection);
-    }
 }
 
 void MainWindow::onFolderSelected(const QString &folder) {
     if (folder.isEmpty()) return;
     m_currentFolder = folder;
-    if (m_currentSection != NavSidebar::Home) {
-        m_sidebar->setSection(NavSidebar::Home);
-        m_currentSection = NavSidebar::Home;
-    }
-    m_foldersPanel->show();
+    m_sidebar->setSection(NavSidebar::Home);
+    m_currentSection = NavSidebar::Home;
     m_grid->loadFromFolder(folder);
-    updateSectionTitle(NavSidebar::Home);
 }
 
 void MainWindow::onFolderAdded(const QString &folder) {
@@ -499,6 +517,10 @@ void MainWindow::onGridCountChanged(int visible, int total) {
     }
 }
 
+void MainWindow::onFilterTextChanged(const QString &text) {
+    m_grid->setFilter(text);
+}
+
 void MainWindow::onToggleFavorite() {
     QString path = m_grid->selectedPath();
     if (path.isEmpty()) return;
@@ -512,7 +534,7 @@ void MainWindow::onToggleFavorite() {
     refreshFavoriteButton();
 
     if (m_currentSection == NavSidebar::Favorites) {
-        setGallerySection(NavSidebar::Favorites);
+        setLibrarySection(NavSidebar::Favorites);
     }
 }
 
@@ -544,11 +566,16 @@ void MainWindow::onClear() {
     updateStatus("Wallpaper cleared");
 }
 
+void MainWindow::onTogglePreview() {
+    if (m_previewToggleBtn->isChecked()) {
+        m_preview->show();
+    } else {
+        m_preview->hide();
+    }
+}
+
 void MainWindow::onBackendChanged(int index) {
     (void)index;
-    int comboIndex = m_backendCombo->currentIndex();
-    m_settingsPanel->setBackend(comboIndex);
-
     backend_t b = selectedBackend();
     if (!backend_available(b)) {
         updateStatus(QString("Backend '%1' not available").arg(backend_to_string(b)));
@@ -558,13 +585,10 @@ void MainWindow::onBackendChanged(int index) {
 
 void MainWindow::onModeChanged(int index) {
     (void)index;
-    m_settingsPanel->setMode(m_modeCombo->currentText());
     saveCurrentConfig(nullptr);
 }
 
 void MainWindow::onSettingsChanged() {
-    m_backendCombo->setCurrentIndex(m_settingsPanel->backend());
-    m_modeCombo->setCurrentText(m_settingsPanel->mode());
     saveCurrentConfig(nullptr);
 }
 
@@ -572,6 +596,7 @@ void MainWindow::onDaemonRequested(bool start) {
     if (start) {
         if (m_currentFolder.isEmpty() || !QDir(m_currentFolder).exists()) {
             QMessageBox::warning(this, "Daemon", "Select a valid folder first.");
+            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
@@ -580,6 +605,7 @@ void MainWindow::onDaemonRequested(bool start) {
         if (!backend_available(b)) {
             QMessageBox::warning(this, "Daemon",
                                  QString("Selected backend '%1' is not available.").arg(backend_to_string(b)));
+            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
@@ -597,10 +623,13 @@ void MainWindow::onDaemonRequested(bool start) {
         if (daemonize_random(m_currentFolder.toUtf8().constData(), interval, b, mode.constData(),
                              enable_wallust, cfg.wallust_hook) != 0) {
             QMessageBox::critical(this, "Daemon", "Could not start daemon.");
+            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
 
+        m_daemonBtn->setChecked(true);
+        m_daemonBtn->setText("Stop Daemon");
         m_settingsPanel->setDaemonRunning(true);
         updateStatus(QString("Daemon started (%1s) with %2").arg(interval).arg(backend_to_string(b)));
         m_daemonRunning = true;
@@ -615,6 +644,8 @@ void MainWindow::onDaemonRequested(bool start) {
         } else {
             updateStatus("No active daemon");
         }
+        m_daemonBtn->setChecked(false);
+        m_daemonBtn->setText("Start Daemon");
         m_settingsPanel->setDaemonRunning(false);
         m_daemonRunning = false;
     }
@@ -672,15 +703,6 @@ void MainWindow::applySelectedImage(const QString &path) {
 
 void MainWindow::updateStatus(const QString &msg) {
     m_statusLabel->setText(msg);
-}
-
-void MainWindow::updateSectionTitle(NavSidebar::Section section) {
-    switch (section) {
-        case NavSidebar::Home: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Home</b>"); break;
-        case NavSidebar::Favorites: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Favorites</b>"); break;
-        case NavSidebar::Recent: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Recent</b>"); break;
-        case NavSidebar::Settings: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Settings</b>"); break;
-    }
 }
 
 bool MainWindow::readDaemonPid(int *pid) {

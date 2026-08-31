@@ -20,13 +20,15 @@ extern "C" {
 }
 
 QT_BEGIN_NAMESPACE
-class QLabel;
+class QAction;
 class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPushButton;
 class QStackedWidget;
-class QSplitter;
+class QToolButton;
 QT_END_NAMESPACE
 
-class FoldersPanel;
 class WallpaperGrid;
 class PreviewPanel;
 class SettingsPanel;
@@ -41,30 +43,33 @@ public:
 private slots:
     /* Navigation */
     void onSectionChanged(NavSidebar::Section section);
-    void onSettingsToggled(bool active);
 
-    /* Gallery */
+    /* Folders */
     void onFolderSelected(const QString &folder);
     void onFolderAdded(const QString &folder);
     void onFolderRemoved(int row);
+
+    /* Gallery / Preview */
     void onImageSelected(const QString &path);
     void onImageDoubleClicked(const QString &path);
     void onGridCountChanged(int visible, int total);
+    void onFilterTextChanged(const QString &text);
 
-    /* Preview actions */
+    /* Actions */
     void onToggleFavorite();
     void onApply();
     void onRandom();
     void onClear();
+    void onTogglePreview();
 
-    /* Settings */
+    /* Toolbar */
     void onBackendChanged(int index);
     void onModeChanged(int index);
     void onSettingsChanged();
     void onDaemonRequested(bool start);
 
 private:
-    enum ContentPage { GalleryPage, SettingsPage };
+    enum ContentPage { LibraryPage, SettingsPage };
 
     void setupUi();
     void applyStyleSheet();
@@ -83,10 +88,9 @@ private:
     bool isFavorite(const QString &path) const;
     void refreshFavoriteButton();
 
-    void setGallerySection(NavSidebar::Section section);
+    void setLibrarySection(NavSidebar::Section section);
     void applySelectedImage(const QString &path);
     void updateStatus(const QString &msg);
-    void updateSectionTitle(NavSidebar::Section section);
 
     backend_t selectedBackend() const;
     backend_t preferredBackendFor(const QString &path) const;
@@ -94,19 +98,27 @@ private:
 
     /* UI composition */
     NavSidebar *m_sidebar;
-    QLabel *m_sectionTitle;
+    QStackedWidget *m_pages;
+
+    /* Toolbar */
     QComboBox *m_backendCombo;
     QComboBox *m_modeCombo;
-    QStackedWidget *m_pages;
-    QLabel *m_statusLabel;
+    QLineEdit *m_filterEdit;
+    QPushButton *m_applyBtn;
+    QPushButton *m_randomBtn;
+    QPushButton *m_clearBtn;
+    QPushButton *m_favoriteBtn;
+    QPushButton *m_daemonBtn;
+    QPushButton *m_previewToggleBtn;
 
-    QWidget *m_galleryPage;
-    QSplitter *m_gallerySplitter;
-    FoldersPanel *m_foldersPanel;
+    /* Pages */
+    QWidget *m_libraryPage;
     WallpaperGrid *m_grid;
     PreviewPanel *m_preview;
-
     SettingsPanel *m_settingsPanel;
+
+    /* Status */
+    QLabel *m_statusLabel;
 
     /* State */
     NavSidebar::Section m_currentSection = NavSidebar::Home;
