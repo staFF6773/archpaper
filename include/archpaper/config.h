@@ -26,6 +26,8 @@ typedef struct {
     char wallust_hook[4096];
     int daemon_interval;
     char cache_quality[16];
+    char mpvpaper_profile[16];
+    int mpvpaper_hwdec;
 } config_t;
 
 /* Load config from ~/.config/archpaper/config and apply defaults. */

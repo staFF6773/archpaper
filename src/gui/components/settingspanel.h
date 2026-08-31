@@ -36,6 +36,12 @@ public:
     void setCacheQuality(const QString &quality);
     QString cacheQuality() const;
 
+    void setMpvpaperProfile(const QString &profile);
+    QString mpvpaperProfile() const;
+
+    void setMpvpaperHwdec(bool enabled);
+    bool mpvpaperHwdec() const;
+
     void setInterval(int seconds);
     int interval() const;
 
@@ -56,6 +62,8 @@ private:
     QLineEdit *m_wallustHookEdit;
     QPushButton *m_wallustHookBrowseButton;
     QComboBox *m_cacheQualityCombo;
+    QComboBox *m_mpvpaperProfileCombo;
+    QCheckBox *m_mpvpaperHwdecCheck;
     QSpinBox *m_intervalSpin;
     QPushButton *m_daemonButton;
 };

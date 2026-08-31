@@ -11,6 +11,7 @@
 #define _GNU_SOURCE
 
 #include "archpaper/backend.h"
+#include "archpaper/config.h"
 #include "archpaper/utils.h"
 
 #include <dirent.h>
@@ -220,13 +221,6 @@ static int set_hyprpaper(const char *path) {
     return run_fork(argv);
 }
 
-enum {
-    GPU_UNKNOWN,
-    GPU_NVIDIA,
-    GPU_INTEL,
-    GPU_AMD
-};
-
 static int run_shell_output(const char *cmd, char *out, size_t out_len) {
     FILE *f = popen(cmd, "r");
     if (!f) return 1;
@@ -277,29 +271,6 @@ static void detect_monitor_resolution(int *width, int *height) {
             if (*width > 0 && *height > 0) return;
         }
     }
-}
-
-static int detect_gpu_vendor(void) {
-    FILE *f = fopen("/sys/class/drm/card0/device/vendor", "r");
-    if (f) {
-        char vendor[16];
-        if (fgets(vendor, sizeof(vendor), f)) {
-            fclose(f);
-            if (strstr(vendor, "10de")) return GPU_NVIDIA;
-            if (strstr(vendor, "8086")) return GPU_INTEL;
-            if (strstr(vendor, "1002")) return GPU_AMD;
-        }
-        fclose(f);
-    }
-
-    char buf[256];
-    if (run_shell_output("lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' | head -1",
-                         buf, sizeof(buf)) == 0 && buf[0] != '\0') {
-        if (strcasestr(buf, "nvidia")) return GPU_NVIDIA;
-        if (strcasestr(buf, "intel")) return GPU_INTEL;
-        if (strcasestr(buf, "amd") || strcasestr(buf, "radeon")) return GPU_AMD;
-    }
-    return GPU_UNKNOWN;
 }
 
 static void get_video_resolution(const char *path, int *width, int *height) {
@@ -607,19 +578,49 @@ static const char *cached_animated_path(const char *path, const char *quality) {
     return path;
 }
 
-static void build_mpvpaper_options(char *buf, size_t len, const char *mode) {
-    int gpu = detect_gpu_vendor();
-    const char *mode_opts = map_mpvpaper_mode_options(mode);
+static const char *mpvpaper_profile_from_string(const char *s) {
+    if (!s) return "quality";
+    if (strcasecmp(s, "balanced") == 0) return "balanced";
+    if (strcasecmp(s, "performance") == 0) return "performance";
+    return "quality";
+}
 
-    /* Base options that reduce CPU usage even when hwaccel works. */
+static void build_mpvpaper_options(char *buf, size_t len, const char *mode) {
+    config_t cfg;
+    config_load(&cfg);
+
+    const char *mode_opts = map_mpvpaper_mode_options(mode);
+    const char *profile = mpvpaper_profile_from_string(cfg.mpvpaper_profile);
+
+    /* Base options shared by every profile. We always disable the stream cache
+     * for local wallpaper files: it wastes RAM and is unnecessary for an
+     * infinite loop. */
     snprintf(buf, len,
-             "no-audio loop-file=inf vd-lavc-threads=2 scale=bilinear%s",
+             "no-audio loop-file=inf pause=no vd-lavc-threads=4 "
+             "cache=no demuxer-readahead-secs=0 demuxer-max-bytes=5M%s",
              mode_opts);
 
-    /* Only trust hardware decoding on Intel/AMD; NVIDIA on Wayland usually fails
-     * to initialize vaapi/vdpau and falls back to CPU anyway, while spamming
-     * the logs. */
-    if (gpu == GPU_INTEL || gpu == GPU_AMD || gpu == GPU_UNKNOWN) {
+    if (strcmp(profile, "quality") == 0) {
+        /* Quality: keep smooth motion sync and a good upscaler. */
+        size_t n = strlen(buf);
+        snprintf(buf + n, len - n,
+                 " video-sync=display-resample scale=lanczos");
+    } else if (strcmp(profile, "balanced") == 0) {
+        /* Balanced: save a bit of CPU, still looks fine. */
+        size_t n = strlen(buf);
+        snprintf(buf + n, len - n,
+                 " video-sync=desync scale=bilinear deband=no dither=no");
+    } else { /* performance */
+        size_t n = strlen(buf);
+        snprintf(buf + n, len - n,
+                 " video-sync=desync scale=bilinear deband=no dither=no "
+                 "correct-pts=no");
+    }
+
+    /* Hardware decoding is opt-in because NVIDIA proprietary on Wayland usually
+     * fails to initialize vaapi/vdpau. When enabled by the user, use auto-safe
+     * and let mpv fall back to software gracefully. */
+    if (cfg.mpvpaper_hwdec) {
         size_t n = strlen(buf);
         snprintf(buf + n, len - n, " hwdec=auto-safe");
     }

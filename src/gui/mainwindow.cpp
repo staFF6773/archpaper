@@ -278,6 +278,8 @@ void MainWindow::loadConfig() {
     m_settingsPanel->setWallustEnabled(cfg.wallust_enabled != 0);
     m_settingsPanel->setWallustHook(QString::fromUtf8(cfg.wallust_hook));
     m_settingsPanel->setCacheQuality(QString::fromUtf8(cfg.cache_quality));
+    m_settingsPanel->setMpvpaperProfile(QString::fromUtf8(cfg.mpvpaper_profile));
+    m_settingsPanel->setMpvpaperHwdec(cfg.mpvpaper_hwdec != 0);
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
 
     loadFavorites();
@@ -322,6 +324,12 @@ void MainWindow::saveCurrentConfig(const char *path) {
     QByteArray cacheQuality = m_settingsPanel->cacheQuality().toUtf8();
     strncpy(cfg.cache_quality, cacheQuality.constData(), sizeof(cfg.cache_quality) - 1);
     cfg.cache_quality[sizeof(cfg.cache_quality) - 1] = '\0';
+
+    QByteArray mpvpaperProfile = m_settingsPanel->mpvpaperProfile().toUtf8();
+    strncpy(cfg.mpvpaper_profile, mpvpaperProfile.constData(), sizeof(cfg.mpvpaper_profile) - 1);
+    cfg.mpvpaper_profile[sizeof(cfg.mpvpaper_profile) - 1] = '\0';
+
+    cfg.mpvpaper_hwdec = m_settingsPanel->mpvpaperHwdec() ? 1 : 0;
 
     config_save(&cfg);
     saveFolders();

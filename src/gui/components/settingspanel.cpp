@@ -93,6 +93,39 @@ void SettingsPanel::setupUi() {
         "Original keeps native resolution; Monitor balances quality and CPU use."
         "</span>"));
 
+    /* mpvpaper profile */
+    auto *mpvpaperGroup = new QGroupBox("Video wallpaper (mpvpaper)");
+    mpvpaperGroup->setObjectName("settingsGroup");
+
+    auto *mpvpaperProfileLabel = new QLabel("Profile:");
+    mpvpaperProfileLabel->setObjectName("mutedLabel");
+    m_mpvpaperProfileCombo = new QComboBox;
+    m_mpvpaperProfileCombo->setToolTip(
+        "Quality = smooth, best scaling.\n"
+        "Balanced = lower RAM/CPU, still looks good.\n"
+        "Performance = minimum resources, may micro-stutter.");
+    m_mpvpaperProfileCombo->addItem("Quality", "quality");
+    m_mpvpaperProfileCombo->addItem("Balanced", "balanced");
+    m_mpvpaperProfileCombo->addItem("Performance", "performance");
+    connect(m_mpvpaperProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsPanel::settingsChanged);
+
+    auto *mpvpaperProfileLayout = new QHBoxLayout;
+    mpvpaperProfileLayout->setSpacing(10);
+    mpvpaperProfileLayout->addWidget(mpvpaperProfileLabel);
+    mpvpaperProfileLayout->addWidget(m_mpvpaperProfileCombo, 1);
+
+    m_mpvpaperHwdecCheck = new QCheckBox("Try hardware decoding (experimental)");
+    m_mpvpaperHwdecCheck->setToolTip(
+        "On NVIDIA proprietary drivers this usually fails on Wayland and falls back to software. "
+        "Enable only if you want to test vaapi/vdpau support.");
+    connect(m_mpvpaperHwdecCheck, &QCheckBox::toggled, this, &SettingsPanel::settingsChanged);
+
+    auto *mpvpaperInner = new QVBoxLayout(mpvpaperGroup);
+    mpvpaperInner->setSpacing(10);
+    mpvpaperInner->addLayout(mpvpaperProfileLayout);
+    mpvpaperInner->addWidget(m_mpvpaperHwdecCheck);
+
     /* Daemon */
     auto *daemonGroup = new QGroupBox("Automatic wallpaper change");
     daemonGroup->setObjectName("settingsGroup");
@@ -128,6 +161,7 @@ void SettingsPanel::setupUi() {
     layout->addWidget(title);
     layout->addWidget(wallustGroup);
     layout->addWidget(cacheGroup);
+    layout->addWidget(mpvpaperGroup);
     layout->addWidget(daemonGroup);
     layout->addStretch(1);
 }
@@ -157,6 +191,25 @@ void SettingsPanel::setCacheQuality(const QString &quality) {
 
 QString SettingsPanel::cacheQuality() const {
     return m_cacheQualityCombo->currentData().toString();
+}
+
+void SettingsPanel::setMpvpaperProfile(const QString &profile) {
+    int idx = m_mpvpaperProfileCombo->findData(profile, Qt::UserRole, Qt::MatchFixedString);
+    if (idx < 0)
+        idx = m_mpvpaperProfileCombo->findData("quality");
+    m_mpvpaperProfileCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+QString SettingsPanel::mpvpaperProfile() const {
+    return m_mpvpaperProfileCombo->currentData().toString();
+}
+
+void SettingsPanel::setMpvpaperHwdec(bool enabled) {
+    m_mpvpaperHwdecCheck->setChecked(enabled);
+}
+
+bool SettingsPanel::mpvpaperHwdec() const {
+    return m_mpvpaperHwdecCheck->isChecked();
 }
 
 void SettingsPanel::setInterval(int seconds) {

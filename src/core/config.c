@@ -50,6 +50,9 @@ void config_default(config_t *cfg) {
     cfg->daemon_interval = 300;
     strncpy(cfg->cache_quality, "monitor", sizeof(cfg->cache_quality) - 1);
     cfg->cache_quality[sizeof(cfg->cache_quality) - 1] = '\0';
+    strncpy(cfg->mpvpaper_profile, "quality", sizeof(cfg->mpvpaper_profile) - 1);
+    cfg->mpvpaper_profile[sizeof(cfg->mpvpaper_profile) - 1] = '\0';
+    cfg->mpvpaper_hwdec = 0;
 }
 
 static int ensure_dir(const char *path) {
@@ -110,6 +113,12 @@ int config_load(config_t *cfg) {
         } else if (strncmp(line, "cache_quality=", 14) == 0) {
             strncpy(cfg->cache_quality, line + 14, sizeof(cfg->cache_quality) - 1);
             cfg->cache_quality[sizeof(cfg->cache_quality) - 1] = '\0';
+        } else if (strncmp(line, "mpvpaper_profile=", 17) == 0) {
+            strncpy(cfg->mpvpaper_profile, line + 17, sizeof(cfg->mpvpaper_profile) - 1);
+            cfg->mpvpaper_profile[sizeof(cfg->mpvpaper_profile) - 1] = '\0';
+        } else if (strncmp(line, "mpvpaper_hwdec=", 15) == 0) {
+            cfg->mpvpaper_hwdec = (strcmp(line + 15, "true") == 0 ||
+                                   strcmp(line + 15, "1") == 0);
         }
     }
     fclose(f);
@@ -128,6 +137,8 @@ int config_save(const config_t *cfg) {
     fprintf(f, "wallust_hook=%s\n", cfg->wallust_hook);
     fprintf(f, "daemon_interval=%d\n", cfg->daemon_interval > 0 ? cfg->daemon_interval : 300);
     fprintf(f, "cache_quality=%s\n", cfg->cache_quality[0] ? cfg->cache_quality : "monitor");
+    fprintf(f, "mpvpaper_profile=%s\n", cfg->mpvpaper_profile[0] ? cfg->mpvpaper_profile : "quality");
+    fprintf(f, "mpvpaper_hwdec=%s\n", cfg->mpvpaper_hwdec ? "true" : "false");
     fprintf(f, "last=%s\n", cfg->last_wallpaper);
 
     for (int i = 0; i < cfg->folder_count; i++) {
