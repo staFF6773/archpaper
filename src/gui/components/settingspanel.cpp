@@ -123,55 +123,6 @@ void SettingsPanel::setupUi() {
     daemonInner->addLayout(daemonLayout);
     daemonInner->addWidget(new QLabel("<span style='color:#8b949e; font-size:12px;'>Daemon uses the currently selected backend and scans the active folder.</span>"));
 
-    /* Market */
-    auto *marketGroup = new QGroupBox("Market");
-    marketGroup->setObjectName("settingsGroup");
-
-    auto *marketDirLabel = new QLabel("Download folder:");
-    marketDirLabel->setObjectName("mutedLabel");
-    m_marketDownloadDirEdit = new QLineEdit;
-    m_marketDownloadDirEdit->setPlaceholderText("~/Pictures/Wallpapers");
-    connect(m_marketDownloadDirEdit, &QLineEdit::editingFinished,
-            this, &SettingsPanel::marketSettingsChanged);
-
-    m_marketDownloadBrowseButton = new QPushButton("Browse");
-    m_marketDownloadBrowseButton->setObjectName("secondaryButton");
-    connect(m_marketDownloadBrowseButton, &QPushButton::clicked,
-            this, &SettingsPanel::onMarketDownloadBrowse);
-
-    auto *marketDirLayout = new QHBoxLayout;
-    marketDirLayout->setSpacing(10);
-    marketDirLayout->addWidget(m_marketDownloadDirEdit, 1);
-    marketDirLayout->addWidget(m_marketDownloadBrowseButton);
-
-    auto *apiKeyLabel = new QLabel("Wallhaven API key:");
-    apiKeyLabel->setObjectName("mutedLabel");
-    m_wallhavenApiKeyEdit = new QLineEdit;
-    m_wallhavenApiKeyEdit->setPlaceholderText("Optional (required for NSFW)");
-    m_wallhavenApiKeyEdit->setEchoMode(QLineEdit::Password);
-    connect(m_wallhavenApiKeyEdit, &QLineEdit::editingFinished,
-            this, &SettingsPanel::marketSettingsChanged);
-
-    auto *purityLabel = new QLabel("Wallhaven purity:");
-    purityLabel->setObjectName("mutedLabel");
-    m_wallhavenPurityCombo = new QComboBox;
-    m_wallhavenPurityCombo->addItem("SFW", "sfw");
-    m_wallhavenPurityCombo->addItem("Sketchy", "sketchy");
-    m_wallhavenPurityCombo->addItem("NSFW", "nsfw");
-    m_wallhavenPurityCombo->addItem("All", "all");
-    connect(m_wallhavenPurityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsPanel::marketSettingsChanged);
-
-    auto *marketLayout = new QGridLayout(marketGroup);
-    marketLayout->setSpacing(10);
-    marketLayout->addWidget(marketDirLabel, 0, 0);
-    marketLayout->addLayout(marketDirLayout, 0, 1);
-    marketLayout->addWidget(apiKeyLabel, 1, 0);
-    marketLayout->addWidget(m_wallhavenApiKeyEdit, 1, 1);
-    marketLayout->addWidget(purityLabel, 2, 0);
-    marketLayout->addWidget(m_wallhavenPurityCombo, 2, 1);
-    marketLayout->setColumnStretch(1, 1);
-
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(20, 20, 20, 20);
     layout->setSpacing(16);
@@ -179,7 +130,6 @@ void SettingsPanel::setupUi() {
     layout->addWidget(backendModeGroup);
     layout->addWidget(wallustGroup);
     layout->addWidget(daemonGroup);
-    layout->addWidget(marketGroup);
     layout->addStretch(1);
 }
 
@@ -244,40 +194,4 @@ void SettingsPanel::onWallustHookBrowse() {
 void SettingsPanel::onDaemonToggled(bool checked) {
     m_daemonButton->setText(checked ? "Stop daemon" : "Start daemon");
     emit daemonRequested(checked);
-}
-
-void SettingsPanel::setMarketDownloadDir(const QString &dir) {
-    m_marketDownloadDirEdit->setText(dir);
-}
-
-QString SettingsPanel::marketDownloadDir() const {
-    return m_marketDownloadDirEdit->text();
-}
-
-void SettingsPanel::setWallhavenApiKey(const QString &key) {
-    m_wallhavenApiKeyEdit->setText(key);
-}
-
-QString SettingsPanel::wallhavenApiKey() const {
-    return m_wallhavenApiKeyEdit->text();
-}
-
-void SettingsPanel::setWallhavenPurity(const QString &purity) {
-    int idx = m_wallhavenPurityCombo->findData(purity);
-    if (idx < 0) idx = 0;
-    m_wallhavenPurityCombo->setCurrentIndex(idx);
-}
-
-QString SettingsPanel::wallhavenPurity() const {
-    return m_wallhavenPurityCombo->currentData().toString();
-}
-
-void SettingsPanel::onMarketDownloadBrowse() {
-    QString dir = QFileDialog::getExistingDirectory(this,
-                                                    QStringLiteral("Select download folder"),
-                                                    QDir::homePath());
-    if (!dir.isEmpty()) {
-        m_marketDownloadDirEdit->setText(dir);
-        emit marketSettingsChanged();
-    }
 }

@@ -13,14 +13,11 @@
 
 #include <QMainWindow>
 
-#include "components/marketpanel.h"
 #include "components/navsidebar.h"
 
 extern "C" {
 #include "archpaper/backend.h"
 }
-
-#include "market/marketitem.h"
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -66,12 +63,8 @@ private slots:
     void onSettingsChanged();
     void onDaemonRequested(bool start);
 
-    /* Market */
-    void onMarketDownloaded(const QString &path, const MarketItem &item, bool applyAfter);
-    void onMarketSettingsChanged();
-
 private:
-    enum ContentPage { GalleryPage, SettingsPage, MarketPage };
+    enum ContentPage { GalleryPage, SettingsPage };
 
     void setupUi();
     void applyStyleSheet();
@@ -114,7 +107,6 @@ private:
     PreviewPanel *m_preview;
 
     SettingsPanel *m_settingsPanel;
-    MarketPanel *m_marketPanel;
 
     /* State */
     NavSidebar::Section m_currentSection = NavSidebar::Home;

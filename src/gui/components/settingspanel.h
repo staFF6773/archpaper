@@ -21,8 +21,6 @@ class QPushButton;
 class QSpinBox;
 QT_END_NAMESPACE
 
-#include "../market/marketitem.h"
-
 class SettingsPanel : public QFrame {
     Q_OBJECT
 
@@ -46,27 +44,15 @@ public:
 
     void setDaemonRunning(bool running);
 
-    /* Market settings */
-    void setMarketDownloadDir(const QString &dir);
-    QString marketDownloadDir() const;
-
-    void setWallhavenApiKey(const QString &key);
-    QString wallhavenApiKey() const;
-
-    void setWallhavenPurity(const QString &purity);
-    QString wallhavenPurity() const;
-
 signals:
     void backendChanged(int index);
     void modeChanged(int index);
     void settingsChanged();
     void daemonRequested(bool start);
-    void marketSettingsChanged();
 
 private slots:
     void onWallustHookBrowse();
     void onDaemonToggled(bool checked);
-    void onMarketDownloadBrowse();
 
 private:
     void setupUi();
@@ -78,12 +64,6 @@ private:
     QPushButton *m_wallustHookBrowseButton;
     QSpinBox *m_intervalSpin;
     QPushButton *m_daemonButton;
-
-    /* Market */
-    QLineEdit *m_marketDownloadDirEdit;
-    QPushButton *m_marketDownloadBrowseButton;
-    QLineEdit *m_wallhavenApiKeyEdit;
-    QComboBox *m_wallhavenPurityCombo;
 };
 
 #endif // SETTINGSPANEL_H

@@ -26,7 +26,6 @@
 #include <QVBoxLayout>
 
 #include "components/folderspanel.h"
-#include "components/marketpanel.h"
 #include "components/navsidebar.h"
 #include "components/previewpanel.h"
 #include "components/settingspanel.h"
@@ -206,18 +205,9 @@ void MainWindow::setupUi() {
     connect(m_settingsPanel, &SettingsPanel::modeChanged, this, &MainWindow::onModeChanged);
     connect(m_settingsPanel, &SettingsPanel::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsPanel, &SettingsPanel::daemonRequested, this, &MainWindow::onDaemonRequested);
-    connect(m_settingsPanel, &SettingsPanel::marketSettingsChanged,
-            this, &MainWindow::onMarketSettingsChanged);
-
-    /* Market page */
-    m_marketPanel = new MarketPanel;
-    connect(m_marketPanel, &MarketPanel::statusMessage, this, &MainWindow::updateStatus);
-    connect(m_marketPanel, &MarketPanel::wallpaperDownloaded,
-            this, &MainWindow::onMarketDownloaded);
 
     m_pages->addWidget(m_galleryPage);
     m_pages->addWidget(m_settingsPanel);
-    m_pages->addWidget(m_marketPanel);
 
     /* Status footer */
     auto *statusBar = new QFrame;
@@ -266,17 +256,6 @@ void MainWindow::loadConfig() {
     m_settingsPanel->setWallustHook(QString::fromUtf8(cfg.wallust_hook));
 
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
-
-    QString marketDir = QString::fromUtf8(cfg.market_download_dir);
-    if (marketDir.isEmpty()) marketDir = defaultWallpaperDir();
-
-    m_settingsPanel->setMarketDownloadDir(marketDir);
-    m_settingsPanel->setWallhavenApiKey(QString::fromUtf8(cfg.wallhaven_api_key));
-    m_settingsPanel->setWallhavenPurity(QString::fromUtf8(cfg.wallhaven_purity));
-
-    m_marketPanel->setDownloadDir(marketDir);
-    m_marketPanel->setWallhavenApiKey(QString::fromUtf8(cfg.wallhaven_api_key));
-    m_marketPanel->setWallhavenPurity(QString::fromUtf8(cfg.wallhaven_purity));
 
     loadFavorites();
     loadRecent();
@@ -454,10 +433,6 @@ void MainWindow::setGallerySection(NavSidebar::Section section) {
         case NavSidebar::Recent:
             m_foldersPanel->hide();
             m_grid->setWallpapers(m_recentPaths);
-            break;
-        case NavSidebar::Market:
-            m_foldersPanel->hide();
-            m_pages->setCurrentIndex(MarketPage);
             break;
         case NavSidebar::Settings:
             break;
@@ -695,65 +670,6 @@ void MainWindow::applySelectedImage(const QString &path) {
     }
 }
 
-void MainWindow::onMarketSettingsChanged() {
-    QString marketDir = m_settingsPanel->marketDownloadDir();
-    if (marketDir.isEmpty()) {
-        marketDir = defaultWallpaperDir();
-    } else if (marketDir.startsWith("~/")) {
-        marketDir = QDir::homePath() + marketDir.mid(1);
-    }
-
-    config_t cfg;
-    config_load(&cfg);
-
-    QByteArray dir = marketDir.toUtf8();
-    strncpy(cfg.market_download_dir, dir.constData(), sizeof(cfg.market_download_dir) - 1);
-    cfg.market_download_dir[sizeof(cfg.market_download_dir) - 1] = '\0';
-
-    QByteArray apiKey = m_settingsPanel->wallhavenApiKey().toUtf8();
-    strncpy(cfg.wallhaven_api_key, apiKey.constData(), sizeof(cfg.wallhaven_api_key) - 1);
-    cfg.wallhaven_api_key[sizeof(cfg.wallhaven_api_key) - 1] = '\0';
-
-    QByteArray purity = m_settingsPanel->wallhavenPurity().toUtf8();
-    strncpy(cfg.wallhaven_purity, purity.constData(), sizeof(cfg.wallhaven_purity) - 1);
-    cfg.wallhaven_purity[sizeof(cfg.wallhaven_purity) - 1] = '\0';
-
-    config_save(&cfg);
-
-    m_marketPanel->setDownloadDir(marketDir);
-    m_marketPanel->setWallhavenApiKey(m_settingsPanel->wallhavenApiKey());
-    m_marketPanel->setWallhavenPurity(m_settingsPanel->wallhavenPurity());
-}
-
-void MainWindow::onMarketDownloaded(const QString &path, const MarketItem &/*item*/, bool applyAfter) {
-    if (path.isEmpty() || !QFile::exists(path)) return;
-
-    addToRecent(path);
-
-    QString dir = QFileInfo(path).absolutePath();
-    bool inFolders = false;
-    for (int i = 0; i < m_foldersPanel->count(); ++i) {
-        if (m_foldersPanel->folderAt(i) == dir) {
-            inFolders = true;
-            break;
-        }
-    }
-    if (!inFolders) {
-        m_foldersPanel->addFolder(dir);
-        onFolderAdded(dir);
-    }
-
-    if (m_currentSection == NavSidebar::Home && m_currentFolder == dir) {
-        m_grid->loadFromFolder(dir);
-    }
-
-    updateStatus(QString("Downloaded: %1").arg(QFileInfo(path).fileName()));
-
-    if (applyAfter) {
-        applySelectedImage(path);
-    }
-}
-
 void MainWindow::updateStatus(const QString &msg) {
     m_statusLabel->setText(msg);
 }
@@ -763,7 +679,6 @@ void MainWindow::updateSectionTitle(NavSidebar::Section section) {
         case NavSidebar::Home: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Home</b>"); break;
         case NavSidebar::Favorites: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Favorites</b>"); break;
         case NavSidebar::Recent: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Recent</b>"); break;
-        case NavSidebar::Market: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Market</b>"); break;
         case NavSidebar::Settings: m_sectionTitle->setText("<b style='font-size:18px; color:#f0f6fc;'>Settings</b>"); break;
     }
 }

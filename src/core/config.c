@@ -48,17 +48,6 @@ void config_default(config_t *cfg) {
     cfg->wallust_enabled = 0;
     cfg->wallust_hook[0] = '\0';
     cfg->daemon_interval = 300;
-    strncpy(cfg->wallhaven_purity, "sfw", sizeof(cfg->wallhaven_purity) - 1);
-    cfg->wallhaven_purity[sizeof(cfg->wallhaven_purity) - 1] = '\0';
-    cfg->wallhaven_api_key[0] = '\0';
-    char *download_dir = expand_path("~/Pictures/Wallpapers");
-    if (download_dir) {
-        strncpy(cfg->market_download_dir, download_dir, sizeof(cfg->market_download_dir) - 1);
-        cfg->market_download_dir[sizeof(cfg->market_download_dir) - 1] = '\0';
-        free(download_dir);
-    } else {
-        cfg->market_download_dir[0] = '\0';
-    }
 }
 
 static int ensure_dir(const char *path) {
@@ -116,19 +105,6 @@ int config_load(config_t *cfg) {
         } else if (strncmp(line, "daemon_interval=", 16) == 0) {
             cfg->daemon_interval = atoi(line + 16);
             if (cfg->daemon_interval <= 0) cfg->daemon_interval = 300;
-        } else if (strncmp(line, "market_download_dir=", 20) == 0) {
-            char *expanded = expand_path(line + 20);
-            if (expanded) {
-                strncpy(cfg->market_download_dir, expanded, sizeof(cfg->market_download_dir) - 1);
-                cfg->market_download_dir[sizeof(cfg->market_download_dir) - 1] = '\0';
-                free(expanded);
-            }
-        } else if (strncmp(line, "wallhaven_api_key=", 18) == 0) {
-            strncpy(cfg->wallhaven_api_key, line + 18, sizeof(cfg->wallhaven_api_key) - 1);
-            cfg->wallhaven_api_key[sizeof(cfg->wallhaven_api_key) - 1] = '\0';
-        } else if (strncmp(line, "wallhaven_purity=", 17) == 0) {
-            strncpy(cfg->wallhaven_purity, line + 17, sizeof(cfg->wallhaven_purity) - 1);
-            cfg->wallhaven_purity[sizeof(cfg->wallhaven_purity) - 1] = '\0';
         }
     }
     fclose(f);
@@ -146,9 +122,6 @@ int config_save(const config_t *cfg) {
     fprintf(f, "wallust=%s\n", cfg->wallust_enabled ? "true" : "false");
     fprintf(f, "wallust_hook=%s\n", cfg->wallust_hook);
     fprintf(f, "daemon_interval=%d\n", cfg->daemon_interval > 0 ? cfg->daemon_interval : 300);
-    fprintf(f, "market_download_dir=%s\n", cfg->market_download_dir);
-    fprintf(f, "wallhaven_api_key=%s\n", cfg->wallhaven_api_key);
-    fprintf(f, "wallhaven_purity=%s\n", cfg->wallhaven_purity);
     fprintf(f, "last=%s\n", cfg->last_wallpaper);
 
     for (int i = 0; i < cfg->folder_count; i++) {

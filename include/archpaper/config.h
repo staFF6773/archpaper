@@ -15,8 +15,6 @@
 
 #define MAX_FAVORITE_FOLDERS 32
 #define MAX_FOLDER_LEN 4096
-#define MAX_API_KEY_LEN 128
-#define MAX_PURITY_LEN 16
 
 typedef struct {
     backend_t backend;
@@ -27,9 +25,6 @@ typedef struct {
     int wallust_enabled;
     char wallust_hook[4096];
     int daemon_interval;
-    char market_download_dir[MAX_FOLDER_LEN];
-    char wallhaven_api_key[MAX_API_KEY_LEN];
-    char wallhaven_purity[MAX_PURITY_LEN];
 } config_t;
 
 /* Load config from ~/.config/archpaper/config and apply defaults. */
