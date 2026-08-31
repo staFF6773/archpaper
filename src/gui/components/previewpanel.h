@@ -18,7 +18,9 @@
 QT_BEGIN_NAMESPACE
 class QLabel;
 class QPushButton;
+class QProcess;
 class QStackedWidget;
+class QTemporaryFile;
 class QMovie;
 class QMediaPlayer;
 class QVideoWidget;
@@ -48,15 +50,16 @@ protected:
 
 private slots:
     void onFavoriteClicked();
+    void onVideoFrameExtracted();
 
 private:
     void setupUi();
     void stopMedia();
-    void showImage(const QString &path);
+    bool showImage(const QString &path);
     void scaleAndShowPixmap();
-    void showAnimatedImage(const QString &path);
-    void showVideo(const QString &path);
-    void showVideoThumbnail(const QString &path);
+    void startVideoFrameExtraction(const QString &path);
+    void setVideoFallback();
+
     void showEmpty();
     void updateInfo(const QFileInfo &info, const QString &badge);
 
@@ -78,6 +81,10 @@ private:
     bool m_isAnimated = false;
     bool m_isVideo = false;
     QPixmap m_originalPixmap;
+
+    /* Async video thumbnail extraction */
+    QProcess *m_extractor = nullptr;
+    QTemporaryFile *m_extractorTemp = nullptr;
 };
 
 #endif // PREVIEWPANEL_H

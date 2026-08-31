@@ -34,6 +34,12 @@ backend_t select_backend_for_path(const char *path, backend_t preferred);
 /* Apply a wallpaper with the selected backend. */
 int set_wallpaper(backend_t b, const char *path, const char *mode);
 
+/* Return the best path to use for previews/GUI thumbnails. For oversized
+ * videos or animated images this is the cached, resized copy instead of the
+ * original file. The returned pointer points to internal static storage and
+ * is only valid until the next call. */
+const char *backend_optimized_path(const char *path);
+
 /* Remove existing background processes. */
 int clear_wallpaper(void);
 

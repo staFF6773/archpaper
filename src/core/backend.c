@@ -624,6 +624,17 @@ static int set_awww(const char *path, const char *mode) {
     return run_fork(argv);
 }
 
+const char *backend_optimized_path(const char *path) {
+    if (!path || !file_exists(path))
+        return path;
+
+    if (is_video(path))
+        return cached_video_path(path);
+    if (is_animated_image(path))
+        return cached_animated_path(path);
+    return path;
+}
+
 int set_wallpaper(backend_t b, const char *path, const char *mode) {
     if (!path || !file_exists(path)) return 1;
 

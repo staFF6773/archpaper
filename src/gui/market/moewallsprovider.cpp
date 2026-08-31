@@ -19,16 +19,103 @@
 
 namespace {
 
-constexpr char USER_AGENT[] = "archpaper/1.0 (Qt6; Linux; Market)";
+constexpr char USER_AGENT[] =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36";
 
-QString resolutionFromClasses(const QJsonArray &classes) {
-    static const QRegularExpression re(QStringLiteral("resolutions-(\\d+x\\d+)"));
-    for (const QJsonValue &v : classes) {
-        const QString s = v.toString();
-        QRegularExpressionMatch m = re.match(s);
-        if (m.hasMatch()) return m.captured(1);
-    }
+QString resolutionFromClasses(const QString &classes) {
+    static const QRegularExpression re(QStringLiteral("resolutions-(\\d+x\\d+)"),
+                                         QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch m = re.match(classes);
+    if (m.hasMatch()) return m.captured(1);
     return QString();
+}
+
+QString cleanTitle(const QString &title) {
+    QString out = title;
+    out.remove(QRegularExpression(QStringLiteral("<[^>]+>")));
+    out.replace(QStringLiteral("&#8211;"), QStringLiteral("-"));
+    out.replace(QStringLiteral("&#8212;"), QStringLiteral("—"));
+    out.replace(QStringLiteral("&#8216;"), QStringLiteral("'"));
+    out.replace(QStringLiteral("&#8217;"), QStringLiteral("'"));
+    out.replace(QStringLiteral("&#8220;"), QStringLiteral("\""));
+    out.replace(QStringLiteral("&#8221;"), QStringLiteral("\""));
+    out.replace(QStringLiteral("&#8230;"), QStringLiteral("..."));
+    return out.simplified();
+}
+
+QList<MarketItem> parseSearchResults(const QString &html) {
+    QList<MarketItem> items;
+
+    static const QRegularExpression articleRe(
+        QStringLiteral("<article[^>]*>(.*?)</article>"),
+        QRegularExpression::CaseInsensitiveOption |
+            QRegularExpression::DotMatchesEverythingOption);
+
+    static const QRegularExpression postIdRe(
+        QStringLiteral("class=\"[^\"]*post-(\\d+)[^\"]*\""),
+        QRegularExpression::CaseInsensitiveOption);
+
+    static const QRegularExpression titleRe(
+        QStringLiteral("<h3[^>]*class=\"[^\"]*entry-title[^\"]*\"[^>]*>"
+                       ".*?<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>"),
+        QRegularExpression::CaseInsensitiveOption |
+            QRegularExpression::DotMatchesEverythingOption);
+
+    static const QRegularExpression thumbRe(
+        QStringLiteral("<img[^>]*class=\"[^\"]*wp-post-image[^\"]*\"[^>]*"
+                       "src=\"([^\"]+)\""),
+        QRegularExpression::CaseInsensitiveOption);
+
+    static const QRegularExpression resolutionRe(
+        QStringLiteral("resolutions-(\\d+x\\d+)"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    QRegularExpressionMatchIterator it = articleRe.globalMatch(html);
+    while (it.hasNext()) {
+        QRegularExpressionMatch articleMatch = it.next();
+        QString article = articleMatch.captured(1);
+
+        QRegularExpressionMatch idMatch = postIdRe.match(article);
+        if (!idMatch.hasMatch()) continue;
+
+        QRegularExpressionMatch titleMatch = titleRe.match(article);
+        if (!titleMatch.hasMatch()) continue;
+
+        MarketItem item;
+        item.id = idMatch.captured(1);
+        item.pageUrl = titleMatch.captured(1);
+        item.title = cleanTitle(titleMatch.captured(2));
+        item.source = QLatin1String("moewalls");
+        item.fileType = QLatin1String("mp4");
+
+        QRegularExpressionMatch thumbMatch = thumbRe.match(article);
+        if (thumbMatch.hasMatch()) item.thumbnailUrl = thumbMatch.captured(1);
+
+        QRegularExpressionMatch resMatch = resolutionRe.match(article);
+        if (resMatch.hasMatch()) item.resolution = resMatch.captured(1);
+
+        if (!item.id.isEmpty() && !item.pageUrl.isEmpty())
+            items.append(item);
+    }
+
+    return items;
+}
+
+int parseTotalPages(const QString &html) {
+    int total = 1;
+    static const QRegularExpression pageRe(
+        QStringLiteral("<a[^>]*class=\"[^\"]*page-numbers[^\"]*\"[^>]*>([^<]+)</a>"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    QRegularExpressionMatchIterator it = pageRe.globalMatch(html);
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        bool ok = false;
+        int n = m.captured(1).toInt(&ok);
+        if (ok && n > total) total = n;
+    }
+    return total;
 }
 
 } // namespace
@@ -43,8 +130,13 @@ QString MoeWallsProvider::baseDownloadUrl(const QString &encodedDataUrl) {
 
 QNetworkRequest MoeWallsProvider::createRequest(const QUrl &url) {
     QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::UserAgentHeader, USER_AGENT);
+    req.setRawHeader("User-Agent", USER_AGENT);
+    req.setRawHeader("Accept",
+                     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
+                     "image/webp,image/apng,*/*;q=0.8");
+    req.setRawHeader("Accept-Language", "en-US,en;q=0.9");
     req.setRawHeader("Referer", "https://moewalls.com/");
+    req.setRawHeader("Connection", "keep-alive");
     return req;
 }
 
@@ -55,12 +147,15 @@ void MoeWallsProvider::search(const QString &query, int page) {
         m_reply = nullptr;
     }
 
-    QUrl url(QStringLiteral("https://moewalls.com/wp-json/wp/v2/posts"));
+    QUrl url;
+    if (page > 1) {
+        url = QUrl(QStringLiteral("https://moewalls.com/page/%1/").arg(page));
+    } else {
+        url = QUrl(QStringLiteral("https://moewalls.com/"));
+    }
+
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("per_page"), QStringLiteral("24"));
-    q.addQueryItem(QStringLiteral("page"), QString::number(qMax(1, page)));
-    q.addQueryItem(QStringLiteral("search"), query.trimmed());
-    q.addQueryItem(QStringLiteral("_embed"), QStringLiteral("wp:featuredmedia"));
+    q.addQueryItem(QStringLiteral("s"), query.trimmed());
     url.setQuery(q);
 
     m_reply = m_nam->get(createRequest(url));
@@ -78,47 +173,15 @@ void MoeWallsProvider::onFinished() {
         return;
     }
 
-    QByteArray data = reply->readAll();
-    int totalPages = 1;
-    QByteArray totalPagesHeader = reply->rawHeader("X-WP-TotalPages");
-    if (!totalPagesHeader.isEmpty())
-        totalPages = totalPagesHeader.toInt();
-
+    QString html = QString::fromUtf8(reply->readAll());
     reply->deleteLater();
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isArray()) {
-        emit error(QStringLiteral("MoeWalls: invalid response"));
+    QList<MarketItem> items = parseSearchResults(html);
+    int totalPages = parseTotalPages(html);
+
+    if (items.isEmpty()) {
+        emit error(QStringLiteral("MoeWalls: no results found"));
         return;
-    }
-
-    QJsonArray posts = doc.array();
-    QList<MarketItem> items;
-    items.reserve(posts.size());
-
-    for (const QJsonValue &val : posts) {
-        QJsonObject post = val.toObject();
-        MarketItem item;
-        item.id = QString::number(post.value(QStringLiteral("id")).toInt());
-        item.title = post.value(QStringLiteral("title")).toObject()
-                        .value(QStringLiteral("rendered")).toString();
-        item.source = QStringLiteral("moewalls");
-        item.pageUrl = post.value(QStringLiteral("link")).toString();
-        item.fileType = QStringLiteral("mp4");
-        item.resolution = resolutionFromClasses(post.value(QStringLiteral("class_list")).toArray());
-
-        QJsonObject embedded = post.value(QStringLiteral("_embedded")).toObject();
-        QJsonArray media = embedded.value(QStringLiteral("wp:featuredmedia")).toArray();
-        if (!media.isEmpty()) {
-            QJsonObject mediaObj = media.first().toObject();
-            item.thumbnailUrl = mediaObj.value(QStringLiteral("source_url")).toString();
-        }
-
-        // Strip HTML entities in title
-        item.title.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QString());
-
-        if (!item.id.isEmpty() && !item.pageUrl.isEmpty())
-            items.append(item);
     }
 
     emit resultsReady(items, qMax(1, totalPages));
