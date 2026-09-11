@@ -4,12 +4,14 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
 
 ## Features
 
-- **Qt6 GUI** inspired by Wallpaper Engine:
-  - Dark sidebar with quick sections: Home, Favorites, Recent, Market and Settings.
-  - Top bar with title, search and backend/mode selectors.
-  - Folder panel with your favorite wallpaper directories.
-  - Responsive thumbnail grid with rounded cards and file names.
-  - Hero preview panel with image info, favorite toggle and apply controls.
+- **Compact Qt6 GUI** with a minimal, neutral dark theme:
+  - Slim sidebar with Library, Favorites, Recent and Settings.
+  - Section title, wallpaper count and quick search in the header.
+  - Folder names in the sidebar, with full paths in tooltips.
+  - Responsive thumbnail grid with subtle selection and empty states.
+  - Resizable, hideable preview with image information.
+  - A single action bar for applying wallpapers, favorites and additional actions.
+  - Scrollable Settings with backend/mode selectors and advanced options.
 - **Built-in Market** to browse and download wallpapers directly from **Wallhaven** (static images) and **MoeWalls** (live/animated wallpapers) without opening a browser.
 - **Quick filter** by file name across the current section.
 - **Double click** to apply a wallpaper directly.
@@ -74,11 +76,13 @@ archpaper
 ```
 
 In the window:
-- Use the **sidebar** to switch between Home, Favorites, Recent, Market and Settings.
+- Use the **sidebar** to switch between Library, Favorites, Recent and Settings.
 - Select a folder from the folder panel (or add/remove folders).
 - Click a thumbnail to see the preview in the right panel.
-- Double-click or press **Apply** to set the wallpaper.
-- Use the search box to filter by name.
+- Double-click, press **Enter** in the grid, or click **Apply wallpaper** to set the wallpaper.
+- Use the search box to filter by name; **Ctrl+F** focuses it.
+- Toggle the preview using **Preview** or **Ctrl+P**, and drag its divider to resize it.
+- Open **More** to apply a random wallpaper or clear the current wallpaper.
 - Press the star button to add/remove wallpapers from Favorites.
 - Open **Market** to browse wallpapers from Wallhaven and MoeWalls, download them, or download and apply them directly.
 - Open Settings to configure the backend, mode, wallust, the daemon and Market options (download folder, Wallhaven API key/purity).
@@ -155,7 +159,7 @@ makoctl reload 2>/dev/null
 ### GUI configuration
 
 The Settings section (gear icon in the sidebar) contains:
-- **Backend** and **Mode** selectors in the top bar.
+- **Backend** and **Display mode** selectors in the Wallpaper group.
 - **Checkbox** *Generate scheme with wallust* enables wallust on every wallpaper change.
 - **Hook:** optional extra script to run after wallust. If left empty, only `wallust run` is executed and your `wallust.toml` handles the rest.
 - **Daemon** controls for automatic wallpaper changes by interval.

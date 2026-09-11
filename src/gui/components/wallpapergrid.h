@@ -19,6 +19,7 @@ QT_BEGIN_NAMESPACE
 class QListWidget;
 class QListWidgetItem;
 class QLineEdit;
+class QLabel;
 QT_END_NAMESPACE
 
 class WallpaperGrid : public QFrame {
@@ -49,6 +50,9 @@ signals:
     void imageDoubleClicked(const QString &path);
     void countChanged(int visible, int total);
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private slots:
     void onSelectionChanged();
     void onItemDoubleClicked(QListWidgetItem *item);
@@ -60,6 +64,7 @@ private:
 
     QListWidget *m_list;
     QLineEdit *m_filter;
+    QLabel *m_emptyLabel;
 };
 
 #endif // WALLPAPERGRID_H

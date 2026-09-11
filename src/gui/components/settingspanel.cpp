@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 SettingsPanel::SettingsPanel(QWidget *parent)
@@ -30,9 +31,6 @@ SettingsPanel::SettingsPanel(QWidget *parent)
 
 void SettingsPanel::setupUi() {
     setObjectName("settingsPanel");
-
-    auto *title = new QLabel("<b style='font-size:18px; color:#f0f6fc;'>Settings</b>");
-    title->setObjectName("panelTitle");
 
     /* Wallust */
     auto *wallustGroup = new QGroupBox("Wallust");
@@ -69,6 +67,7 @@ void SettingsPanel::setupUi() {
 
     auto *cacheQualityLabel = new QLabel("Downscale oversized videos/animations to:");
     cacheQualityLabel->setObjectName("mutedLabel");
+    cacheQualityLabel->setWordWrap(true);
     m_cacheQualityCombo = new QComboBox;
     m_cacheQualityCombo->setToolTip(
         "Original = never transcode, use full resolution.\n"
@@ -88,10 +87,10 @@ void SettingsPanel::setupUi() {
     auto *cacheInner = new QVBoxLayout(cacheGroup);
     cacheInner->setSpacing(10);
     cacheInner->addLayout(cacheLayout);
-    cacheInner->addWidget(new QLabel(
-        "<span style='color:#8b949e; font-size:12px;'>"
-        "Original keeps native resolution; Monitor balances quality and CPU use."
-        "</span>"));
+    auto *cacheHint = new QLabel("Original keeps native resolution; Monitor balances quality and CPU use.");
+    cacheHint->setObjectName("mutedLabel");
+    cacheHint->setWordWrap(true);
+    cacheInner->addWidget(cacheHint);
 
     /* mpvpaper profile */
     auto *mpvpaperGroup = new QGroupBox("Video wallpaper (mpvpaper)");
@@ -153,17 +152,18 @@ void SettingsPanel::setupUi() {
     auto *daemonInner = new QVBoxLayout(daemonGroup);
     daemonInner->setSpacing(10);
     daemonInner->addLayout(daemonLayout);
-    daemonInner->addWidget(new QLabel("<span style='color:#8b949e; font-size:12px;'>Daemon uses the currently selected backend and scans the active folder.</span>"));
+    auto *daemonHint = new QLabel("Uses the selected backend and wallpapers from the active folder.");
+    daemonHint->setObjectName("mutedLabel");
+    daemonHint->setWordWrap(true);
+    daemonInner->addWidget(daemonHint);
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(16);
-    layout->addWidget(title);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
     layout->addWidget(wallustGroup);
     layout->addWidget(cacheGroup);
     layout->addWidget(mpvpaperGroup);
     layout->addWidget(daemonGroup);
-    layout->addStretch(1);
 }
 
 void SettingsPanel::setWallustEnabled(bool enabled) {
@@ -221,6 +221,7 @@ int SettingsPanel::interval() const {
 }
 
 void SettingsPanel::setDaemonRunning(bool running) {
+    const QSignalBlocker blocker(m_daemonButton);
     m_daemonButton->setChecked(running);
     m_daemonButton->setText(running ? "Stop daemon" : "Start daemon");
 }

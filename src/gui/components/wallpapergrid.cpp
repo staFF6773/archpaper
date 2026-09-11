@@ -26,12 +26,13 @@
 #include <QPainterPath>
 #include <QPixmap>
 #include <QResizeEvent>
+#include <QShortcut>
 #include <QVBoxLayout>
 
 namespace {
 
-constexpr int THUMB_WIDTH = 240;
-constexpr int THUMB_HEIGHT = 135;
+constexpr int THUMB_WIDTH = 180;
+constexpr int THUMB_HEIGHT = 101;
 
 QString ext(const QString &path) {
     return QFileInfo(path).suffix().toLower();
@@ -67,6 +68,7 @@ WallpaperGrid::WallpaperGrid(QWidget *parent)
 
 void WallpaperGrid::setupUi() {
     setObjectName("wallpaperGrid");
+    setMinimumWidth(210);
 
     m_filter = new QLineEdit(this);
     m_filter->setObjectName("internalFilter");
@@ -77,24 +79,56 @@ void WallpaperGrid::setupUi() {
     m_list->setObjectName("imagesList");
     m_list->setViewMode(QListView::IconMode);
     m_list->setIconSize(QSize(THUMB_WIDTH, THUMB_HEIGHT));
-    m_list->setSpacing(14);
+    m_list->setSpacing(4);
+    m_list->setMovement(QListView::Static);
+    m_list->setTextElideMode(Qt::ElideMiddle);
+    m_list->setAccessibleName("Wallpapers");
     m_list->setWrapping(true);
     m_list->setResizeMode(QListView::Adjust);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_list->setGridSize(QSize(THUMB_WIDTH + 32, THUMB_HEIGHT + 56));
+    m_list->setGridSize(QSize(THUMB_WIDTH + 20, THUMB_HEIGHT + 44));
     m_list->setWordWrap(false);
     m_list->setUniformItemSizes(true);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_list->setFrameShape(QFrame::NoFrame);
+    m_list->viewport()->installEventFilter(this);
 
     connect(m_list, &QListWidget::itemSelectionChanged, this, &WallpaperGrid::onSelectionChanged);
     connect(m_list, &QListWidget::itemDoubleClicked, this, &WallpaperGrid::onItemDoubleClicked);
+    for (const auto key : {Qt::Key_Return, Qt::Key_Enter}) {
+        auto *shortcut = new QShortcut(QKeySequence(key), m_list);
+        shortcut->setContext(Qt::WidgetShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this]() {
+            if (!selectedPath().isEmpty())
+                emit imageDoubleClicked(selectedPath());
+        });
+    }
+
+    m_emptyLabel = new QLabel("No wallpapers yet\nAdd a folder using + in the sidebar");
+    m_emptyLabel->setObjectName("emptyState");
+    m_emptyLabel->setAlignment(Qt::AlignCenter);
+    m_emptyLabel->setWordWrap(true);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_list, 1);
+    layout->addWidget(m_emptyLabel, 1);
+    m_list->hide();
+}
+
+bool WallpaperGrid::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_list->viewport() && event->type() == QEvent::Resize) {
+        const int width = qMax(1, m_list->viewport()->width() - 2 * m_list->spacing());
+        const int columns = qMax(1, qMin(qRound(width / 200.0), width / 160));
+        const int cellWidth = width / columns;
+        const int thumbWidth = qBound(100, cellWidth - 20, THUMB_WIDTH);
+        const int thumbHeight = thumbWidth * THUMB_HEIGHT / THUMB_WIDTH;
+        m_list->setIconSize(QSize(thumbWidth, thumbHeight));
+        m_list->setGridSize(QSize(cellWidth, thumbHeight + 44));
+    }
+    return QFrame::eventFilter(watched, event);
 }
 
 
@@ -153,7 +187,8 @@ void WallpaperGrid::setWallpapers(const QStringList &paths) {
 
 QString WallpaperGrid::selectedPath() const {
     auto *item = m_list->currentItem();
-    return item ? item->data(Qt::UserRole).toString() : QString();
+    return item && item->isSelected() && !item->isHidden()
+               ? item->data(Qt::UserRole).toString() : QString();
 }
 
 QString WallpaperGrid::pathAt(int row) const {
@@ -204,9 +239,7 @@ void WallpaperGrid::refreshFilter() {
 
 void WallpaperGrid::onSelectionChanged() {
     QString path = selectedPath();
-    if (!path.isEmpty()) {
-        emit imageSelected(path);
-    }
+    emit imageSelected(path);
 }
 
 void WallpaperGrid::onItemDoubleClicked(QListWidgetItem *item) {
@@ -222,8 +255,15 @@ void WallpaperGrid::onFilterTextChanged(const QString &text) {
         QFileInfo info(item->data(Qt::UserRole).toString());
         bool match = text.isEmpty() || info.fileName().contains(text, Qt::CaseInsensitive);
         item->setHidden(!match);
+        if (!match && item->isSelected())
+            m_list->setCurrentItem(nullptr);
         if (match) ++visible;
     }
+    m_list->setVisible(visible > 0);
+    m_emptyLabel->setVisible(visible == 0);
+    m_emptyLabel->setText(text.isEmpty()
+        ? "No wallpapers here\nChoose another folder or add one using +"
+        : "No results\nTry a different name or clear the search");
     emit countChanged(visible, m_list->count());
 }
 
@@ -243,7 +283,7 @@ static QPixmap roundedThumbnail(const QImage &sourceImage, const QSize &targetSi
 
     QRect outerRect(2, 2, targetSize.width(), targetSize.height());
     QPainterPath clip;
-    clip.addRoundedRect(outerRect, 10, 10);
+    clip.addRoundedRect(outerRect, 6, 6);
 
     painter.setPen(Qt::NoPen);
     painter.setClipPath(clip);
@@ -254,10 +294,10 @@ static QPixmap roundedThumbnail(const QImage &sourceImage, const QSize &targetSi
     painter.drawPixmap(imageRect, scaled);
     painter.setClipping(false);
 
-    QPen border(QColor(48, 54, 61), 1);
+    QPen border(QColor(42, 42, 42), 1);
     painter.setPen(border);
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(outerRect, 10, 10);
+    painter.drawRoundedRect(outerRect, 6, 6);
     painter.end();
 
     return canvas;

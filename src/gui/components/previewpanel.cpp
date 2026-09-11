@@ -21,7 +21,6 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QProcess>
-#include <QPushButton>
 #include <QResizeEvent>
 #include <QStackedWidget>
 #include <QStandardPaths>
@@ -63,7 +62,7 @@ QPixmap roundPixmap(const QPixmap &source, int radius) {
     painter.setBrush(QBrush(source));
     painter.drawRoundedRect(source.rect(), radius, radius);
 
-    QPen border(QColor(48, 54, 61), 1);
+    QPen border(QColor(42, 42, 42), 1);
     painter.setPen(border);
     painter.setBrush(Qt::NoBrush);
     painter.drawRoundedRect(source.rect(), radius, radius);
@@ -71,7 +70,7 @@ QPixmap roundPixmap(const QPixmap &source, int radius) {
     return rounded;
 }
 
-constexpr int PREVIEW_MARGIN = 24;
+constexpr int PREVIEW_MARGIN = 12;
 
 } // namespace
 
@@ -87,20 +86,22 @@ PreviewPanel::~PreviewPanel() {
 
 void PreviewPanel::setupUi() {
     setObjectName("previewPanel");
-    setMinimumWidth(280);
-    setMaximumWidth(380);
+    setMinimumWidth(220);
+    setMaximumWidth(360);
 
-    auto *header = new QLabel("<b>Preview</b>");
-    header->setObjectName("panelHeader");
+    m_header = new QLabel("Preview");
+    m_header->setObjectName("panelHeader");
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName("previewStack");
+    m_stack->setFixedHeight(140);
 
     m_imageLabel = new QLabel("Select a wallpaper");
     m_imageLabel->setObjectName("previewImage");
     m_imageLabel->setAlignment(Qt::AlignCenter);
     m_imageLabel->setScaledContents(false);
-    m_imageLabel->setMinimumSize(200, 112);
+    m_imageLabel->setMinimumSize(180, 112);
+    m_imageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_imageLabel->setText("Select a wallpaper");
 
     m_videoWidget = new QVideoWidget(this);
@@ -112,40 +113,20 @@ void PreviewPanel::setupUi() {
     m_infoLabel = new QLabel(this);
     m_infoLabel->setObjectName("infoLabel");
     m_infoLabel->setWordWrap(true);
-
-    m_favoriteButton = new QPushButton("\u2606  Favorite", this);
-    m_favoriteButton->setObjectName("secondaryButton");
-    m_favoriteButton->setToolTip("Add or remove from favorites");
-    connect(m_favoriteButton, &QPushButton::clicked, this, &PreviewPanel::onFavoriteClicked);
-
-    m_applyButton = new QPushButton("Apply", this);
-    m_applyButton->setToolTip("Apply selected wallpaper");
-    connect(m_applyButton, &QPushButton::clicked, this, &PreviewPanel::applyClicked);
-
-    m_randomButton = new QPushButton("\u21c4", this);
-    m_randomButton->setObjectName("secondaryButton");
-    m_randomButton->setToolTip("Pick a random wallpaper");
-    connect(m_randomButton, &QPushButton::clicked, this, &PreviewPanel::randomClicked);
-
-    m_clearButton = new QPushButton("Clear", this);
-    m_clearButton->setObjectName("dangerButton");
-    m_clearButton->setToolTip("Remove current wallpaper");
-    connect(m_clearButton, &QPushButton::clicked, this, &PreviewPanel::clearClicked);
-
-    auto *actionLayout = new QHBoxLayout;
-    actionLayout->setSpacing(10);
-    actionLayout->addWidget(m_applyButton, 2);
-    actionLayout->addWidget(m_randomButton, 1);
-    actionLayout->addWidget(m_clearButton, 1);
+    m_infoLabel->setMinimumWidth(0);
+    m_infoLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(12, 12, 12, 12);
-    layout->setSpacing(12);
-    layout->addWidget(header);
-    layout->addWidget(m_stack, 1);
+    layout->setSpacing(10);
+    layout->addWidget(m_header);
+    layout->addWidget(m_stack);
     layout->addWidget(m_infoLabel);
-    layout->addWidget(m_favoriteButton);
-    layout->addLayout(actionLayout);
+    auto *hint = new QLabel("Double-click a wallpaper to apply");
+    hint->setObjectName("mutedLabel");
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    layout->addStretch();
 }
 
 void PreviewPanel::setWallpaper(const QString &path) {
@@ -194,28 +175,16 @@ void PreviewPanel::clear() {
 
 void PreviewPanel::setIsFavorite(bool favorite) {
     m_isFavorite = favorite;
-    if (m_currentPath.isEmpty()) {
-        m_favoriteButton->setEnabled(false);
-        m_favoriteButton->setText("\u2606  Favorite");
-        return;
-    }
-    m_favoriteButton->setEnabled(true);
-    m_favoriteButton->setText(m_isFavorite ? "\u2605  Unfavorite" : "\u2606  Favorite");
+    m_header->setText(favorite && !m_currentPath.isEmpty() ? "Preview  ·  \u2605 Favorite" : "Preview");
 }
 
 bool PreviewPanel::isFavorite() const {
     return m_isFavorite;
 }
 
-void PreviewPanel::onFavoriteClicked() {
-    if (m_currentPath.isEmpty()) return;
-    m_isFavorite = !m_isFavorite;
-    setIsFavorite(m_isFavorite);
-    emit favoriteClicked();
-}
-
 void PreviewPanel::resizeEvent(QResizeEvent *event) {
     QFrame::resizeEvent(event);
+    m_stack->setFixedHeight(qMax(120, (width() - 24) * 9 / 16));
     if (m_currentPath.isEmpty())
         return;
 
@@ -258,8 +227,8 @@ bool PreviewPanel::showImage(const QString &path) {
     m_stack->setCurrentIndex(0);
     QImageReader reader(path);
     if (!reader.canRead()) {
-        m_imageLabel->setText("Could not load preview");
         m_imageLabel->setPixmap(QPixmap());
+        m_imageLabel->setText("Could not load preview");
         m_originalPixmap = QPixmap();
         return false;
     }
@@ -291,8 +260,7 @@ void PreviewPanel::scaleAndShowPixmap() {
 
     QPixmap scaled = m_originalPixmap.scaled(maxSize, Qt::KeepAspectRatio,
                                            Qt::SmoothTransformation);
-    m_imageLabel->setPixmap(roundPixmap(scaled, 16));
-    m_imageLabel->setText("");
+    m_imageLabel->setPixmap(roundPixmap(scaled, 6));
 }
 
 void PreviewPanel::startVideoFrameExtraction(const QString &path) {
@@ -383,11 +351,10 @@ void PreviewPanel::setVideoFallback() {
 
 void PreviewPanel::showEmpty() {
     m_stack->setCurrentIndex(0);
-    m_imageLabel->setText("Select a wallpaper");
     m_imageLabel->setPixmap(QPixmap());
+    m_imageLabel->setText("Select a wallpaper");
     m_infoLabel->clear();
-    m_favoriteButton->setEnabled(false);
-    m_favoriteButton->setText("\u2606  Favorite");
+    setIsFavorite(false);
     m_originalPixmap = QPixmap();
     m_isAnimated = false;
     m_isVideo = false;
@@ -401,9 +368,9 @@ void PreviewPanel::updateInfo(const QFileInfo &info, const QString &badge) {
                              : QString("unknown");
 
     QString badgeHtml = badge.isEmpty() ? QString()
-                                        : QString(" <span style='color:#58a6ff;'>%1</span>").arg(badge);
+                                        : QString(" <span style='color:#b5b5b5;'>%1</span>").arg(badge);
     m_infoLabel->setText(
-        QString("<b style='color:#f0f6fc;'>%1</b>%4<br><span style='color:#8b949e;'>%2 | %3</span>")
+        QString("<b style='color:#eeeeee;'>%1</b>%4<br><span style='color:#999999;'>%2 | %3</span>")
             .arg(info.fileName().toHtmlEscaped())
             .arg(resolution)
             .arg(info.suffix().toUpper())

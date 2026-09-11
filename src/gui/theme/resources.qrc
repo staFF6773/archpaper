@@ -2,5 +2,8 @@
 <RCC version="1.0">
     <qresource prefix="/theme">
         <file>style.qss</file>
+        <file>check.xpm</file>
+        <file>chevron-down.xpm</file>
+        <file>chevron-up.xpm</file>
     </qresource>
 </RCC>

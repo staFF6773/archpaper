@@ -105,11 +105,10 @@ private:
     QComboBox *m_modeCombo;
     QLineEdit *m_filterEdit;
     QPushButton *m_applyBtn;
-    QPushButton *m_randomBtn;
-    QPushButton *m_clearBtn;
     QPushButton *m_favoriteBtn;
-    QPushButton *m_daemonBtn;
     QPushButton *m_previewToggleBtn;
+    QLabel *m_sectionTitle;
+    QLabel *m_countLabel;
 
     /* Pages */
     QWidget *m_libraryPage;
@@ -123,7 +122,6 @@ private:
     /* State */
     NavSidebar::Section m_currentSection = NavSidebar::Home;
     QString m_currentFolder;
-    bool m_daemonRunning = false;
 
     QStringList m_favoritePaths;
     QStringList m_recentPaths;

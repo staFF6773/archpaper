@@ -15,11 +15,18 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QMenu>
 #include <QPushButton>
+#include <QPalette>
+#include <QScrollArea>
+#include <QShortcut>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -90,6 +97,21 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow() = default;
 
 void MainWindow::applyStyleSheet() {
+    qApp->setStyle("Fusion");
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor("#121212"));
+    palette.setColor(QPalette::WindowText, QColor("#eeeeee"));
+    palette.setColor(QPalette::Base, QColor("#191919"));
+    palette.setColor(QPalette::AlternateBase, QColor("#222222"));
+    palette.setColor(QPalette::Text, QColor("#eeeeee"));
+    palette.setColor(QPalette::Button, QColor("#202020"));
+    palette.setColor(QPalette::ButtonText, QColor("#eeeeee"));
+    palette.setColor(QPalette::Highlight, QColor("#555555"));
+    palette.setColor(QPalette::HighlightedText, Qt::white);
+    palette.setColor(QPalette::PlaceholderText, QColor("#888888"));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor("#707070"));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor("#707070"));
+    qApp->setPalette(palette);
     QFile styleFile(":/theme/style.qss");
     if (styleFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qApp->setStyleSheet(QString::fromUtf8(styleFile.readAll()));
@@ -104,23 +126,16 @@ static QPushButton *createToolButton(const QString &text, const QString &tooltip
     btn->setObjectName(objName);
     btn->setToolTip(tooltip);
     btn->setCheckable(checkable);
-    btn->setFixedSize(34, 34);
+    btn->setFixedSize(32, 32);
+    btn->setAccessibleName(tooltip);
     btn->setCursor(Qt::PointingHandCursor);
     return btn;
 }
 
-static QFrame *createVSeparator(QWidget *parent) {
-    auto *line = new QFrame(parent);
-    line->setFrameShape(QFrame::VLine);
-    line->setObjectName("toolbarSeparator");
-    line->setFixedSize(1, 24);
-    return line;
-}
-
 void MainWindow::setupUi() {
     setWindowTitle("archpaper");
-    resize(1400, 860);
-    setMinimumSize(1100, 680);
+    resize(1100, 720);
+    setMinimumSize(820, 520);
 
     applyStyleSheet();
 
@@ -141,71 +156,61 @@ void MainWindow::setupUi() {
     /* Central area */
     auto *centralColumn = new QWidget;
     auto *centralLayout = new QVBoxLayout(centralColumn);
-    centralLayout->setContentsMargins(12, 12, 12, 12);
+    centralLayout->setContentsMargins(16, 14, 16, 8);
     centralLayout->setSpacing(10);
 
     /* Toolbar */
     auto *toolbar = new QFrame;
     toolbar->setObjectName("toolbar");
     auto *tbLayout = new QHBoxLayout(toolbar);
-    tbLayout->setContentsMargins(14, 8, 14, 8);
+    tbLayout->setContentsMargins(0, 0, 0, 8);
     tbLayout->setSpacing(8);
 
-    m_applyBtn = createToolButton("\u25b6", "Apply selected wallpaper", "primaryToolButton", false);
-    m_randomBtn = createToolButton("\u21c4", "Pick a random wallpaper", "secondaryToolButton", false);
+    m_sectionTitle = new QLabel("Library");
+    m_sectionTitle->setObjectName("panelTitle");
+    m_countLabel = new QLabel("0 wallpapers");
+    m_countLabel->setObjectName("mutedLabel");
+    auto *heading = new QVBoxLayout;
+    heading->setSpacing(2);
+    heading->addWidget(m_sectionTitle);
+    heading->addWidget(m_countLabel);
+
+    m_applyBtn = new QPushButton("Apply wallpaper");
+    m_applyBtn->setObjectName("primaryButton");
+    m_applyBtn->setToolTip("Apply selected wallpaper (Enter in the grid)");
     m_favoriteBtn = createToolButton("\u2606", "Toggle favorite", "favoriteToolButton", true);
-    m_clearBtn = createToolButton("\u2715", "Remove current wallpaper", "dangerToolButton", false);
 
     connect(m_applyBtn, &QPushButton::clicked, this, &MainWindow::onApply);
-    connect(m_randomBtn, &QPushButton::clicked, this, &MainWindow::onRandom);
     connect(m_favoriteBtn, &QPushButton::clicked, this, &MainWindow::onToggleFavorite);
-    connect(m_clearBtn, &QPushButton::clicked, this, &MainWindow::onClear);
 
     m_filterEdit = new QLineEdit;
     m_filterEdit->setObjectName("searchEdit");
-    m_filterEdit->setPlaceholderText("Filter...");
+    m_filterEdit->setPlaceholderText("Search wallpapers  ·  Ctrl+F");
+    m_filterEdit->setAccessibleName("Search wallpapers");
     m_filterEdit->setClearButtonEnabled(true);
-    m_filterEdit->setMinimumWidth(180);
-    m_filterEdit->setMaximumWidth(260);
+    m_filterEdit->setMinimumWidth(200);
+    m_filterEdit->setMaximumWidth(300);
     connect(m_filterEdit, &QLineEdit::textChanged, this, &MainWindow::onFilterTextChanged);
 
-    tbLayout->addWidget(m_applyBtn);
-    tbLayout->addWidget(m_randomBtn);
-    tbLayout->addWidget(m_favoriteBtn);
-    tbLayout->addWidget(m_clearBtn);
-    tbLayout->addWidget(createVSeparator(toolbar));
-    tbLayout->addWidget(m_filterEdit);
+    tbLayout->addLayout(heading);
     tbLayout->addStretch();
+    tbLayout->addWidget(m_filterEdit, 1);
 
-    auto *backendLabel = new QLabel("Backend:");
-    backendLabel->setObjectName("mutedLabel");
     m_backendCombo = new QComboBox;
     m_backendCombo->addItems({"swaybg", "hyprpaper", "mpvpaper", "awww"});
     connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onBackendChanged);
 
-    auto *modeLabel = new QLabel("Mode:");
-    modeLabel->setObjectName("mutedLabel");
     m_modeCombo = new QComboBox;
     m_modeCombo->addItems({"fill", "fit", "stretch", "center", "tile"});
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModeChanged);
 
-    m_previewToggleBtn = createToolButton("\u29c9", "Toggle preview panel", "secondaryToolButton", true);
+    m_previewToggleBtn = new QPushButton("Preview");
+    m_previewToggleBtn->setCheckable(true);
+    m_previewToggleBtn->setToolTip("Show or hide preview (Ctrl+P)");
     m_previewToggleBtn->setChecked(true);
     connect(m_previewToggleBtn, &QPushButton::clicked, this, &MainWindow::onTogglePreview);
-
-    m_daemonBtn = createToolButton("\u26a1", "Start/stop automatic wallpaper changes", "daemonToolButton", true);
-    connect(m_daemonBtn, &QPushButton::clicked, this, &MainWindow::onDaemonRequested);
-
-    tbLayout->addWidget(backendLabel);
-    tbLayout->addWidget(m_backendCombo);
-    tbLayout->addSpacing(10);
-    tbLayout->addWidget(modeLabel);
-    tbLayout->addWidget(m_modeCombo);
-    tbLayout->addWidget(createVSeparator(toolbar));
-    tbLayout->addWidget(m_previewToggleBtn);
-    tbLayout->addWidget(m_daemonBtn);
 
     /* Content pages */
     m_pages = new QStackedWidget(this);
@@ -213,9 +218,27 @@ void MainWindow::setupUi() {
     /* Library page: grid + preview */
     m_libraryPage = new QWidget;
     m_libraryPage->setObjectName("libraryPage");
-    auto *libraryLayout = new QHBoxLayout(m_libraryPage);
+    auto *libraryLayout = new QVBoxLayout(m_libraryPage);
     libraryLayout->setContentsMargins(0, 0, 0, 0);
-    libraryLayout->setSpacing(12);
+    libraryLayout->setSpacing(10);
+
+    auto *actions = new QHBoxLayout;
+    actions->setSpacing(6);
+    actions->addWidget(m_applyBtn);
+    actions->addWidget(m_favoriteBtn);
+    auto *moreButton = new QToolButton;
+    moreButton->setText("More");
+    moreButton->setAccessibleName("More wallpaper actions");
+    moreButton->setPopupMode(QToolButton::InstantPopup);
+    auto *menu = new QMenu(moreButton);
+    menu->addAction("Apply random wallpaper", this, &MainWindow::onRandom);
+    menu->addSeparator();
+    menu->addAction("Clear current wallpaper", this, &MainWindow::onClear);
+    moreButton->setMenu(menu);
+    actions->addWidget(moreButton);
+    actions->addStretch();
+    actions->addWidget(m_previewToggleBtn);
+    libraryLayout->addLayout(actions);
 
     m_grid = new WallpaperGrid;
     connect(m_grid, &WallpaperGrid::imageSelected, this, &MainWindow::onImageSelected);
@@ -223,31 +246,52 @@ void MainWindow::setupUi() {
     connect(m_grid, &WallpaperGrid::countChanged, this, &MainWindow::onGridCountChanged);
 
     m_preview = new PreviewPanel;
-    connect(m_preview, &PreviewPanel::favoriteClicked, this, &MainWindow::onToggleFavorite);
-    connect(m_preview, &PreviewPanel::applyClicked, this, &MainWindow::onApply);
-    connect(m_preview, &PreviewPanel::randomClicked, this, &MainWindow::onRandom);
-    connect(m_preview, &PreviewPanel::clearClicked, this, &MainWindow::onClear);
-
-    libraryLayout->addWidget(m_grid, 1);
-    libraryLayout->addWidget(m_preview);
+    auto *splitter = new QSplitter(Qt::Horizontal);
+    splitter->setChildrenCollapsible(false);
+    splitter->setHandleWidth(6);
+    splitter->addWidget(m_grid);
+    splitter->addWidget(m_preview);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 0);
+    splitter->setSizes({620, 250});
+    libraryLayout->addWidget(splitter, 1);
 
     /* Settings page */
     m_settingsPanel = new SettingsPanel;
     connect(m_settingsPanel, &SettingsPanel::settingsChanged, this, &MainWindow::onSettingsChanged);
     connect(m_settingsPanel, &SettingsPanel::daemonRequested, this, &MainWindow::onDaemonRequested);
 
+    auto *playbackGroup = new QGroupBox("Wallpaper");
+    playbackGroup->setObjectName("settingsGroup");
+    auto *playbackLayout = new QFormLayout(playbackGroup);
+    playbackLayout->addRow("Backend", m_backendCombo);
+    playbackLayout->addRow("Display mode", m_modeCombo);
+
+    auto *settingsContent = new QWidget;
+    auto *settingsLayout = new QVBoxLayout(settingsContent);
+    settingsLayout->setContentsMargins(0, 0, 8, 0);
+    settingsLayout->setSpacing(10);
+    settingsLayout->addWidget(playbackGroup);
+    settingsLayout->addWidget(m_settingsPanel);
+    settingsLayout->addStretch();
+    auto *settingsScroll = new QScrollArea;
+    settingsScroll->setWidgetResizable(true);
+    settingsScroll->setFrameShape(QFrame::NoFrame);
+    settingsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    settingsScroll->setWidget(settingsContent);
+
     m_pages->addWidget(m_libraryPage);
-    m_pages->addWidget(m_settingsPanel);
+    m_pages->addWidget(settingsScroll);
 
     /* Status footer */
     auto *statusBar = new QFrame;
     statusBar->setObjectName("statusBar");
     auto *statusLayout = new QHBoxLayout(statusBar);
-    statusLayout->setContentsMargins(14, 8, 14, 8);
+    statusLayout->setContentsMargins(0, 5, 0, 0);
     m_statusLabel = new QLabel("Ready");
     m_statusLabel->setObjectName("statusLabel");
-    statusLayout->addWidget(m_statusLabel);
-    statusLayout->addStretch();
+    m_statusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    statusLayout->addWidget(m_statusLabel, 1);
 
     centralLayout->addWidget(toolbar);
     centralLayout->addWidget(m_pages, 1);
@@ -255,6 +299,20 @@ void MainWindow::setupUi() {
 
     rootLayout->addWidget(m_sidebar);
     rootLayout->addWidget(centralColumn, 1);
+
+    auto *searchShortcut = new QShortcut(QKeySequence::Find, this);
+    connect(searchShortcut, &QShortcut::activated, this, [this]() {
+        if (m_pages->currentIndex() == SettingsPage)
+            m_sidebar->setSection(m_currentSection);
+        m_filterEdit->setFocus();
+        m_filterEdit->selectAll();
+    });
+    auto *previewShortcut = new QShortcut(QKeySequence("Ctrl+P"), this);
+    connect(previewShortcut, &QShortcut::activated, this, [this]() {
+        if (m_pages->currentIndex() == LibraryPage)
+            m_previewToggleBtn->click();
+    });
+    refreshFavoriteButton();
 }
 
 void MainWindow::loadConfig() {
@@ -457,9 +515,12 @@ void MainWindow::refreshFavoriteButton() {
 }
 
 void MainWindow::onSectionChanged(NavSidebar::Section section) {
+    const bool settings = section == NavSidebar::Settings;
+    m_filterEdit->setVisible(!settings);
+    m_countLabel->setVisible(!settings);
     if (section == NavSidebar::Settings) {
+        m_sectionTitle->setText("Settings");
         m_pages->setCurrentIndex(SettingsPage);
-        m_daemonBtn->setChecked(m_daemonRunning);
     } else {
         m_pages->setCurrentIndex(LibraryPage);
         setLibrarySection(section);
@@ -471,6 +532,7 @@ void MainWindow::setLibrarySection(NavSidebar::Section section) {
 
     switch (section) {
         case NavSidebar::Home:
+            m_sectionTitle->setText("Library");
             if (!m_currentFolder.isEmpty() && QDir(m_currentFolder).exists()) {
                 m_grid->loadFromFolder(m_currentFolder);
             } else if (!m_sidebar->selectedFolder().isEmpty()) {
@@ -478,9 +540,11 @@ void MainWindow::setLibrarySection(NavSidebar::Section section) {
             }
             break;
         case NavSidebar::Favorites:
+            m_sectionTitle->setText("Favorites");
             m_grid->setWallpapers(m_favoritePaths);
             break;
         case NavSidebar::Recent:
+            m_sectionTitle->setText("Recent");
             m_grid->setWallpapers(m_recentPaths);
             break;
         case NavSidebar::Settings:
@@ -524,10 +588,13 @@ void MainWindow::onImageDoubleClicked(const QString &path) {
 
 void MainWindow::onGridCountChanged(int visible, int total) {
     if (visible == total) {
-        updateStatus(QString("%1 wallpapers").arg(total));
+        m_countLabel->setText(QString("%1 wallpapers").arg(total));
     } else {
-        updateStatus(QString("%1 of %2 match").arg(visible).arg(total));
+        m_countLabel->setText(QString("%1 of %2 wallpapers").arg(visible).arg(total));
     }
+    if (m_grid->selectedPath().isEmpty())
+        m_preview->clear();
+    refreshFavoriteButton();
 }
 
 void MainWindow::onFilterTextChanged(const QString &text) {
@@ -609,7 +676,6 @@ void MainWindow::onDaemonRequested(bool start) {
     if (start) {
         if (m_currentFolder.isEmpty() || !QDir(m_currentFolder).exists()) {
             QMessageBox::warning(this, "Daemon", "Select a valid folder first.");
-            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
@@ -618,7 +684,6 @@ void MainWindow::onDaemonRequested(bool start) {
         if (!backend_available(b)) {
             QMessageBox::warning(this, "Daemon",
                                  QString("Selected backend '%1' is not available.").arg(backend_to_string(b)));
-            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
@@ -640,16 +705,12 @@ void MainWindow::onDaemonRequested(bool start) {
         if (daemonize_random(m_currentFolder.toUtf8().constData(), interval, b, mode.constData(),
                              enable_wallust, cfg.wallust_hook, cfg.cache_quality) != 0) {
             QMessageBox::critical(this, "Daemon", "Could not start daemon.");
-            m_daemonBtn->setChecked(false);
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
 
-        m_daemonBtn->setChecked(true);
-        m_daemonBtn->setText("Stop Daemon");
         m_settingsPanel->setDaemonRunning(true);
         updateStatus(QString("Daemon started (%1s) with %2").arg(interval).arg(backend_to_string(b)));
-        m_daemonRunning = true;
     } else {
         int pid = 0;
         if (readDaemonPid(&pid)) {
@@ -661,10 +722,7 @@ void MainWindow::onDaemonRequested(bool start) {
         } else {
             updateStatus("No active daemon");
         }
-        m_daemonBtn->setChecked(false);
-        m_daemonBtn->setText("Start Daemon");
         m_settingsPanel->setDaemonRunning(false);
-        m_daemonRunning = false;
     }
 }
 
@@ -722,6 +780,7 @@ void MainWindow::applySelectedImage(const QString &path) {
 
 void MainWindow::updateStatus(const QString &msg) {
     m_statusLabel->setText(msg);
+    m_statusLabel->setToolTip(msg);
 }
 
 bool MainWindow::readDaemonPid(int *pid) {

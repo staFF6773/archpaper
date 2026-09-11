@@ -17,7 +17,6 @@
 
 QT_BEGIN_NAMESPACE
 class QLabel;
-class QPushButton;
 class QProcess;
 class QStackedWidget;
 class QTemporaryFile;
@@ -39,17 +38,10 @@ public:
     void setIsFavorite(bool favorite);
     bool isFavorite() const;
 
-signals:
-    void favoriteClicked();
-    void applyClicked();
-    void randomClicked();
-    void clearClicked();
-
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
-    void onFavoriteClicked();
     void onVideoFrameExtracted();
 
 private:
@@ -67,10 +59,7 @@ private:
     QLabel *m_imageLabel;
     QVideoWidget *m_videoWidget;
     QLabel *m_infoLabel;
-    QPushButton *m_favoriteButton;
-    QPushButton *m_applyButton;
-    QPushButton *m_randomButton;
-    QPushButton *m_clearButton;
+    QLabel *m_header;
 
     QMovie *m_movie = nullptr;
     QMediaPlayer *m_player = nullptr;
