@@ -17,6 +17,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include "archpaper/storage.h"
 
 namespace {
 
@@ -196,7 +197,7 @@ int NavSidebar::folderCount() const {
 void NavSidebar::onAddFolder() {
     QString startDir = QDir::homePath() + "/Pictures/Wallpapers";
     if (!QDir(startDir).exists()) {
-        QDir().mkpath(startDir);
+        ap_mkdirs(startDir.toUtf8().constData());
     }
     QString dir = QFileDialog::getExistingDirectory(this, "Add wallpaper folder", startDir);
     if (dir.isEmpty()) return;

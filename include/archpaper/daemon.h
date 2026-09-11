@@ -11,7 +11,18 @@
 #ifndef ARCHPAPER_DAEMON_H
 #define ARCHPAPER_DAEMON_H
 
-#include "backend.h"
+#include "config.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int daemon_start(const char *dir, const config_t *cfg);
+int daemon_stop(void);
+/* pid=0 when stopped. Uses the kernel lock owner, not a stored PID. */
+int daemon_status(int *pid);
+/* Foreground loop for the dedicated internal CLI entry point. */
+int daemon_run(const char *dir, const config_t *cfg);
 
 /* Daemon that periodically changes the wallpaper from a directory.
  * If enable_wallust is non-zero, it runs wallust after each change.
@@ -21,5 +32,9 @@
 int daemonize_random(const char *dir, int interval, backend_t b, const char *mode,
                         int enable_wallust, const char *wallust_hook,
                         const char *cache_quality);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

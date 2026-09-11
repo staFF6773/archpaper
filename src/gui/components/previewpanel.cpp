@@ -16,34 +16,28 @@
 #include <QHBoxLayout>
 #include <QImageReader>
 #include <QLabel>
-#include <QMediaPlayer>
-#include <QMovie>
 #include <QPainter>
 #include <QPainterPath>
-#include <QProcess>
 #include <QResizeEvent>
-#include <QStackedWidget>
-#include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QTimer>
+#include <QThread>
 #include <QUrl>
 #include <QVBoxLayout>
-#include <QVideoWidget>
+#include "archpaper/cache.h"
+#include "archpaper/process.h"
+extern "C" {
+#include "archpaper/utils.h"
+}
 
 namespace {
 
-QString ext(const QString &path) {
-    return QFileInfo(path).suffix().toLower();
-}
-
 bool isAnimatedImage(const QString &path) {
-    QString e = ext(path);
-    return e == "gif" || e == "webp";
+    return is_animated_image(path.toUtf8().constData());
 }
 
 bool isVideo(const QString &path) {
-    QString e = ext(path);
-    return e == "mp4" || e == "webm" || e == "mkv" || e == "mov" || e == "avi" || e == "ogv";
+    return is_video(path.toUtf8().constData());
 }
 
 QString mediaBadgeText(const QString &path) {
@@ -92,23 +86,14 @@ void PreviewPanel::setupUi() {
     m_header = new QLabel("Preview");
     m_header->setObjectName("panelHeader");
 
-    m_stack = new QStackedWidget(this);
-    m_stack->setObjectName("previewStack");
-    m_stack->setFixedHeight(140);
-
     m_imageLabel = new QLabel("Select a wallpaper");
     m_imageLabel->setObjectName("previewImage");
     m_imageLabel->setAlignment(Qt::AlignCenter);
     m_imageLabel->setScaledContents(false);
     m_imageLabel->setMinimumSize(180, 112);
     m_imageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    m_imageLabel->setFixedHeight(140);
     m_imageLabel->setText("Select a wallpaper");
-
-    m_videoWidget = new QVideoWidget(this);
-    m_videoWidget->setObjectName("previewVideo");
-
-    m_stack->addWidget(m_imageLabel); // index 0
-    m_stack->addWidget(m_videoWidget); // index 1
 
     m_infoLabel = new QLabel(this);
     m_infoLabel->setObjectName("infoLabel");
@@ -120,7 +105,7 @@ void PreviewPanel::setupUi() {
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
     layout->addWidget(m_header);
-    layout->addWidget(m_stack);
+    layout->addWidget(m_imageLabel);
     layout->addWidget(m_infoLabel);
     auto *hint = new QLabel("Double-click a wallpaper to apply");
     hint->setObjectName("mutedLabel");
@@ -135,8 +120,6 @@ void PreviewPanel::setWallpaper(const QString &path) {
     }
     m_currentPath = path;
     m_scalingDirty = false;
-    m_isAnimated = isAnimatedImage(path);
-    m_isVideo = isVideo(path);
 
     stopMedia();
 
@@ -148,19 +131,11 @@ void PreviewPanel::setWallpaper(const QString &path) {
     QFileInfo info(path);
     QString badge = mediaBadgeText(path);
 
-    if (m_isAnimated || m_isVideo) {
-        /* Show the first frame as a static image so preview is fast and the UI
-         * doesn't have to decode a high-res animation. */
-        bool loaded = showImage(path);
-        if (m_isVideo) {
-            if (!loaded)
-                setVideoFallback();
-            /* Try to replace the first frame with a better one from ffmpeg/mpv. */
-            startVideoFrameExtraction(path);
-        } else if (!loaded) {
-            setVideoFallback();
-        }
+    if (isVideo(path)) {
+        setVideoFallback();
+        startVideoFrameExtraction(path);
     } else {
+        /* QImageReader displays the first frame of animated images. */
         showImage(path);
     }
 
@@ -184,7 +159,7 @@ bool PreviewPanel::isFavorite() const {
 
 void PreviewPanel::resizeEvent(QResizeEvent *event) {
     QFrame::resizeEvent(event);
-    m_stack->setFixedHeight(qMax(120, (width() - 24) * 9 / 16));
+    m_imageLabel->setFixedHeight(qMax(120, (width() - 24) * 9 / 16));
     if (m_currentPath.isEmpty())
         return;
 
@@ -198,20 +173,12 @@ void PreviewPanel::resizeEvent(QResizeEvent *event) {
 }
 
 void PreviewPanel::stopMedia() {
-    if (m_movie) {
-        m_movie->stop();
-        delete m_movie;
-        m_movie = nullptr;
-    }
-    if (m_player) {
-        m_player->stop();
-        m_player->setVideoOutput(nullptr);
-        delete m_player;
-        m_player = nullptr;
-    }
+    ++m_generation;
     if (m_extractor) {
-        m_extractor->kill();
-        m_extractor->deleteLater();
+        m_extractor->disconnect(this);
+        m_extractor->requestInterruption();
+        m_extractor->wait();
+        delete m_extractor;
         m_extractor = nullptr;
     }
     if (m_extractorTemp) {
@@ -219,12 +186,9 @@ void PreviewPanel::stopMedia() {
         m_extractorTemp = nullptr;
     }
     m_originalPixmap = QPixmap();
-    m_isAnimated = false;
-    m_isVideo = false;
 }
 
 bool PreviewPanel::showImage(const QString &path) {
-    m_stack->setCurrentIndex(0);
     QImageReader reader(path);
     if (!reader.canRead()) {
         m_imageLabel->setPixmap(QPixmap());
@@ -264,18 +228,8 @@ void PreviewPanel::scaleAndShowPixmap() {
 }
 
 void PreviewPanel::startVideoFrameExtraction(const QString &path) {
-    if (m_extractor) {
-        m_extractor->kill();
-        m_extractor->deleteLater();
-        m_extractor = nullptr;
-    }
-    if (m_extractorTemp) {
-        delete m_extractorTemp;
-        m_extractorTemp = nullptr;
-    }
-
     m_extractorTemp = new QTemporaryFile(
-        QDir::tempPath() + QStringLiteral("/archpaper_vthumb_XXXXXX.jpg"), this);
+        QDir::tempPath() + QStringLiteral("/archpaper_vthumb_XXXXXX.png"), this);
     m_extractorTemp->setAutoRemove(true);
     if (!m_extractorTemp->open()) {
         delete m_extractorTemp;
@@ -285,39 +239,19 @@ void PreviewPanel::startVideoFrameExtraction(const QString &path) {
     QString tmpPath = m_extractorTemp->fileName();
     m_extractorTemp->close();
 
-    QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-    if (!ffmpeg.isEmpty()) {
-        m_extractor = new QProcess(this);
-        m_extractor->setProperty("outputPath", tmpPath);
-        connect(m_extractor,
-                QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                this, &PreviewPanel::onVideoFrameExtracted);
-        m_extractor->start(ffmpeg, QStringList{
-            QStringLiteral("-y"),
-            QStringLiteral("-ss"), QStringLiteral("00:00:01"),
-            QStringLiteral("-i"), path,
-            QStringLiteral("-vframes"), QStringLiteral("1"),
-            QStringLiteral("-q:v"), QStringLiteral("2"),
-            tmpPath
-        });
-        return;
-    }
-
-    QString mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
-    if (!mpv.isEmpty()) {
-        m_extractor = new QProcess(this);
-        m_extractor->setProperty("outputPath", tmpPath);
-        connect(m_extractor,
-                QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                this, &PreviewPanel::onVideoFrameExtracted);
-        m_extractor->start(mpv, QStringList{
-            path,
-            QStringLiteral("--no-audio"),
-            QStringLiteral("--no-config"),
-            QStringLiteral("--frames=1"),
-            QStringLiteral("--o=") + tmpPath
-        });
-    }
+    m_extractor = QThread::create([path, tmpPath]() {
+        ap_process_set_cancel_check([](void *) -> int {
+            return QThread::currentThread()->isInterruptionRequested();
+        }, nullptr);
+        ap_thumbnail_extract(path.toUtf8().constData(), tmpPath.toUtf8().constData());
+        ap_process_set_cancel_check(nullptr, nullptr);
+    });
+    m_extractor->setProperty("outputPath", tmpPath);
+    const quint64 generation = m_generation;
+    connect(m_extractor, &QThread::finished, this, [this, generation]() {
+        if (generation == m_generation) onVideoFrameExtracted();
+    });
+    m_extractor->start();
 }
 
 void PreviewPanel::onVideoFrameExtracted() {
@@ -350,14 +284,11 @@ void PreviewPanel::setVideoFallback() {
 }
 
 void PreviewPanel::showEmpty() {
-    m_stack->setCurrentIndex(0);
     m_imageLabel->setPixmap(QPixmap());
     m_imageLabel->setText("Select a wallpaper");
     m_infoLabel->clear();
     setIsFavorite(false);
     m_originalPixmap = QPixmap();
-    m_isAnimated = false;
-    m_isVideo = false;
 }
 
 void PreviewPanel::updateInfo(const QFileInfo &info, const QString &badge) {

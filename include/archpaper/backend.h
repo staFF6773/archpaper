@@ -11,6 +11,14 @@
 #ifndef ARCHPAPER_BACKEND_H
 #define ARCHPAPER_BACKEND_H
 
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct config;
+
 typedef enum {
     BACKEND_SWAYBG,
     BACKEND_HYPRPAPER,
@@ -42,15 +50,20 @@ const char *cache_quality_from_string(const char *s);
  *   "low"      -> keep the old aggressive 1080p/720p downscale.
  * Passing NULL defaults to "monitor". */
 int set_wallpaper(backend_t b, const char *path, const char *mode, const char *quality);
+/* Uses an explicit configuration snapshot; never reloads GUI settings. */
+int backend_apply(const char *path, const struct config *cfg);
 
 /* Return the best path to use for previews/GUI thumbnails. For oversized
  * videos or animated images this is the cached, resized copy instead of the
- * original file. The returned pointer points to internal static storage and
- * is only valid until the next call.
+ * original file. The result is copied into the caller-owned output buffer.
  * quality semantics are the same as set_wallpaper(). */
-const char *backend_optimized_path(const char *path, const char *quality);
+int backend_optimized_path(const char *path, const char *quality, char *out, size_t size);
 
 /* Remove existing background processes. */
 int clear_wallpaper(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,222 +1,168 @@
-/*
- * archpaper - Wallpaper manager for Wayland
- * Copyright (C) 2024  archpaper contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- */
+/* archpaper - Copyright (C) 2024 archpaper contributors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * CLI frontend for the shared C application API. */
+#include "archpaper/cli.h"
+#include "archpaper/config.h"
+#include "archpaper/daemon.h"
+#include "archpaper/history.h"
+#include "archpaper/library.h"
+#include "archpaper/storage.h"
+#include "archpaper/utils.h"
+#include "archpaper/wallpaper.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
-#include "archpaper/backend.h"
-#include "archpaper/config.h"
-#include "archpaper/daemon.h"
-#include "archpaper/utils.h"
-#include "archpaper/wallust.h"
-#include "archpaper/cli.h"
-
-static void print_usage(const char *name) {
-    printf("Usage: %s <command> [options]\n\n", name);
-    printf("Commands:\n");
-    printf("  set <media> [--mode MODE]       Set a wallpaper (image/video/GIF).\n");
-    printf("  clear                           Remove the current wallpaper.\n");
-    printf("  random <directory> [--mode MODE]  Pick a random image/video.\n");
-    printf("  daemon <directory> --interval <s> [--mode MODE]\n");
-    printf("                                  Change the wallpaper periodically.\n");
-    printf("  status                          Show the current status.\n");
-    printf("  backend                         Show detected and active backend.\n");
-    printf("\nModes (swaybg): fill, fit, stretch, center, tile\n");
-    printf("Global options:\n");
-    printf("  --backend <swaybg|hyprpaper|awww|mpvpaper>  Force a specific backend.\n");
-    printf("  --mode <MODE>                   Image scaling mode.\n");
-    printf("  --wallust                       Run 'wallust run' after applying.\n");
-    printf("  --wallust-hook <script>         Script to run after wallust.\n");
+static void usage(const char *name) {
+    printf("Usage: %s <command> [options]\n\n"
+           "  set <media>              Apply an image, animation or video\n"
+           "  random <directory>       Apply a random wallpaper\n"
+           "  clear                    Clear the wallpaper\n"
+           "  list <directory>         List supported regular files\n"
+           "  favorites                List favorite wallpapers\n"
+           "  favorite <media>         Toggle a favorite\n"
+           "  recent                   List recent wallpapers\n"
+           "  daemon <directory>       Start automatic changes\n"
+           "  daemon stop|status       Stop or inspect automatic changes\n"
+           "  status | backend         Show saved settings/backend\n\n"
+           "Options for set/random/daemon:\n"
+           "  --backend swaybg|hyprpaper|awww|mpvpaper\n"
+           "  --mode fill|fit|stretch|center|tile\n"
+           "  --wallust | --wallust-hook <script>\n"
+           "  --cache-quality original|monitor|low\n"
+           "  --mpvpaper-profile quality|balanced|performance\n"
+           "  --hwdec                  Enable mpvpaper hardware decoding\n"
+           "  --interval <10..86400>    Daemon interval in seconds\n", name);
 }
 
-static int check_wayland(void) {
-    if (getenv("WAYLAND_DISPLAY")) return 1;
-    const char *stype = getenv("XDG_SESSION_TYPE");
-    return stype && strcmp(stype, "wayland") == 0;
+static int report(int rc) {
+    if (rc != AP_OK) fprintf(stderr, "archpaper: %s\n", ap_error_string((ap_result)rc));
+    return rc;
 }
 
-static void parse_global_args(int argc, char *argv[], backend_t *backend, const char **mode,
-                              int *wallust_enabled, const char **wallust_hook) {
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
-            *backend = backend_from_string(argv[++i]);
-        } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
-            *mode = argv[++i];
-        } else if (strcmp(argv[i], "--wallust") == 0) {
-            *wallust_enabled = 1;
-        } else if (strcmp(argv[i], "--wallust-hook") == 0 && i + 1 < argc) {
-            *wallust_hook = argv[++i];
-        }
-    }
+static int parse_backend(const char *value, backend_t *out) {
+    if (strcmp(value, "swaybg") && strcmp(value, "hyprpaper") && strcmp(value, "awww") && strcmp(value, "mpvpaper")) return AP_INVALID;
+    *out = backend_from_string(value);
+    return AP_OK;
 }
 
-static void run_wallust_theme(int enabled, const char *image_path, const char *wallust_hook) {
-    if (!enabled) return;
-    if (wallust_available()) {
-        wallust_run(image_path);
-    } else {
-        fprintf(stderr, "Warning: wallust not found in PATH; skipping color generation.\n");
-    }
-    wallust_hook_run(wallust_hook, image_path);
-}
-
-int archpaper_cli(int argc, char *argv[]) {
-    if (argc < 2) {
-        print_usage(argv[0]);
-        return 1;
-    }
-
-    if (!check_wayland()) {
-        fprintf(stderr, "Warning: no Wayland session detected (WAYLAND_DISPLAY is not set).\n");
-    }
-
+static int internal_daemon(int argc, char **argv) {
+    if (argc != 11) return AP_INVALID;
     config_t cfg;
-    config_load(&cfg);
+    config_default(&cfg);
+    if (config_parse_interval(argv[3], &cfg.daemon_interval) != AP_OK || parse_backend(argv[4], &cfg.backend) != AP_OK ||
+        ap_copy_string(cfg.mode, sizeof(cfg.mode), argv[5]) != AP_OK ||
+        (strcmp(argv[6], "0") && strcmp(argv[6], "1")) ||
+        ap_copy_string(cfg.wallust_hook, sizeof(cfg.wallust_hook), argv[7]) != AP_OK ||
+        ap_copy_string(cfg.cache_quality, sizeof(cfg.cache_quality), argv[8]) != AP_OK ||
+        ap_copy_string(cfg.mpvpaper_profile, sizeof(cfg.mpvpaper_profile), argv[9]) != AP_OK ||
+        (strcmp(argv[10], "0") && strcmp(argv[10], "1"))) return AP_INVALID;
+    cfg.wallust_enabled = argv[6][0] == '1';
+    cfg.mpvpaper_hwdec = argv[10][0] == '1';
+    return daemon_run(argv[2], &cfg);
+}
 
-    backend_t backend = cfg.backend;
-    const char *mode = cfg.mode;
-    const char *wallust_hook_arg = NULL;
-    int wallust_enabled = cfg.wallust_enabled;
-    parse_global_args(argc, argv, &backend, &mode, &wallust_enabled, &wallust_hook_arg);
-
-    const char *command = argv[1];
-
-    if (strcmp(command, "set") == 0) {
-        if (argc < 3) { print_usage(argv[0]); return 1; }
-        char *path = expand_path(argv[2]);
-        if (!path || !file_exists(path)) {
-            fprintf(stderr, "Error: '%s' not found\n", argv[2]);
-            free(path);
-            return 1;
+static int options(int argc, char **argv, config_t *cfg, const char **path) {
+    *path = NULL;
+    for (int i = 2; i < argc; ++i) {
+        const char *arg = argv[i];
+        if (!strcmp(arg, "--wallust")) { cfg->wallust_enabled = 1; continue; }
+        if (!strcmp(arg, "--hwdec")) { cfg->mpvpaper_hwdec = 1; continue; }
+        if (!strcmp(arg, "--")) {
+            if (*path || i + 2 != argc) return AP_INVALID;
+            *path = argv[++i]; break;
         }
-
-        backend = select_backend_for_path(path, backend);
-        if (!backend_available(backend)) {
-            fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
-            free(path);
-            return 1;
+        if (arg[0] != '-') {
+            if (*path) return AP_INVALID;
+            *path = arg; continue;
         }
-
-        cfg.backend = backend;
-        strncpy(cfg.mode, mode, sizeof(cfg.mode) - 1);
-        cfg.mode[sizeof(cfg.mode) - 1] = '\0';
-        cfg.wallust_enabled = wallust_enabled;
-        strncpy(cfg.last_wallpaper, path, sizeof(cfg.last_wallpaper) - 1);
-        cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
-        config_save(&cfg);
-
-        int r = set_wallpaper(backend, path, mode, cfg.cache_quality);
-        if (r == 0) {
-            run_wallust_theme(wallust_enabled, path,
-                              wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook);
-        }
-        free(path);
-        return r;
-
-    } else if (strcmp(command, "clear") == 0) {
-        return clear_wallpaper();
-
-    } else if (strcmp(command, "random") == 0) {
-        if (argc < 3) { print_usage(argv[0]); return 1; }
-        char *dir = expand_path(argv[2]);
-        if (!dir || !is_dir(dir)) {
-            fprintf(stderr, "Error: '%s' is not a directory.\n", argv[2]);
-            free(dir);
-            return 1;
-        }
-
-        char *img = random_image(dir);
-        if (!img) {
-            fprintf(stderr, "Error: no images found in '%s'.\n", dir);
-            free(dir);
-            return 1;
-        }
-
-        printf("Selected: %s\n", img);
-
-        backend = select_backend_for_path(img, backend);
-        if (!backend_available(backend)) {
-            fprintf(stderr, "Error: backend '%s' not found in PATH.\n", backend_to_string(backend));
-            free(img);
-            free(dir);
-            return 1;
-        }
-
-        cfg.backend = backend;
-        strncpy(cfg.mode, mode, sizeof(cfg.mode) - 1);
-        cfg.mode[sizeof(cfg.mode) - 1] = '\0';
-        cfg.wallust_enabled = wallust_enabled;
-        strncpy(cfg.last_wallpaper, img, sizeof(cfg.last_wallpaper) - 1);
-        cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
-        config_save(&cfg);
-
-        int r = set_wallpaper(backend, img, mode, cfg.cache_quality);
-        if (r == 0) {
-            run_wallust_theme(wallust_enabled, img,
-                              wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook);
-        }
-        free(img);
-        free(dir);
-        return r;
-
-    } else if (strcmp(command, "daemon") == 0) {
-        if (argc < 3) { print_usage(argv[0]); return 1; }
-
-        const char *dir_raw = NULL;
-        int interval = 300;
-
-        for (int i = 2; i < argc; i++) {
-            if (strcmp(argv[i], "--interval") == 0 && i + 1 < argc) {
-                interval = atoi(argv[++i]);
-            } else if (argv[i][0] != '-' && !dir_raw) {
-                dir_raw = argv[i];
-            }
-        }
-
-        if (!dir_raw) { print_usage(argv[0]); return 1; }
-        char *dir = expand_path(dir_raw);
-        if (!dir || !is_dir(dir)) {
-            fprintf(stderr, "Error: '%s' is not a directory.\n", dir_raw);
-            free(dir);
-            return 1;
-        }
-
-        printf("Starting daemon: backend=%s, interval=%ds, wallust=%s, directory=%s\n",
-               backend_to_string(backend), interval,
-               wallust_enabled ? "yes" : "no", dir);
-        const char *wallust_hook = wallust_hook_arg ? wallust_hook_arg : cfg.wallust_hook;
-        return daemonize_random(dir, interval, backend, mode, wallust_enabled, wallust_hook,
-                                cfg.cache_quality);
-
-    } else if (strcmp(command, "status") == 0) {
-        printf("Active backend:   %s\n", backend_to_string(backend));
-        printf("Mode:             %s\n", mode);
-        printf("Detected backend: %s\n", backend_to_string(detect_backend()));
-        printf("Last wallpaper:   %s\n",
-               cfg.last_wallpaper[0] ? cfg.last_wallpaper : "(none)");
-        return 0;
-
-    } else if (strcmp(command, "backend") == 0) {
-        printf("Detected: %s\n", backend_to_string(detect_backend()));
-        printf("Active:   %s\n", backend_to_string(backend));
-        return 0;
-
-    } else if (strcmp(command, "--help") == 0 || strcmp(command, "-h") == 0) {
-        print_usage(argv[0]);
-        return 0;
-
-    } else {
-        fprintf(stderr, "Unknown command: %s\n\n", command);
-        print_usage(argv[0]);
-        return 1;
+        if (++i >= argc) return AP_INVALID;
+        const char *value = argv[i];
+        int rc = AP_OK;
+        if (!strcmp(arg, "--backend")) rc = parse_backend(value, &cfg->backend);
+        else if (!strcmp(arg, "--mode")) rc = ap_copy_string(cfg->mode, sizeof(cfg->mode), value);
+        else if (!strcmp(arg, "--cache-quality")) rc = ap_copy_string(cfg->cache_quality, sizeof(cfg->cache_quality), value);
+        else if (!strcmp(arg, "--mpvpaper-profile")) rc = ap_copy_string(cfg->mpvpaper_profile, sizeof(cfg->mpvpaper_profile), value);
+        else if (!strcmp(arg, "--interval")) rc = config_parse_interval(value, &cfg->daemon_interval);
+        else if (!strcmp(arg, "--wallust-hook")) {
+            char *expanded = expand_path(value);
+            rc = expanded ? ap_copy_string(cfg->wallust_hook, sizeof(cfg->wallust_hook), expanded) : AP_NOMEM;
+            free(expanded);
+        } else return AP_INVALID;
+        if (rc != AP_OK) return rc;
     }
+    return config_validate(cfg);
+}
+
+int archpaper_cli(int argc, char **argv) {
+    if (argc < 2) { usage(argv[0]); return AP_INVALID; }
+    const char *command = argv[1];
+    if (!strcmp(command, "__daemon-run")) return internal_daemon(argc, argv);
+    if (!strcmp(command, "--help") || !strcmp(command, "-h")) { usage(argv[0]); return AP_OK; }
+    if (!strcmp(command, "daemon") && argc == 3 && !strcmp(argv[2], "stop")) return report(daemon_stop());
+    if (!strcmp(command, "daemon") && argc == 3 && !strcmp(argv[2], "status")) {
+        int pid;
+        int rc = daemon_status(&pid);
+        if (rc == AP_OK) { if (pid) printf("Running (PID %d)\n", pid); else puts("Stopped"); }
+        return report(rc);
+    }
+    if ((!strcmp(command, "favorites") || !strcmp(command, "recent")) && argc == 2) {
+        ap_path_list list = {0};
+        int rc = ap_history_load(!strcmp(command, "favorites") ? AP_FAVORITES : AP_RECENT, &list);
+        for (size_t i = 0; i < list.count; ++i) puts(list.paths[i]);
+        ap_path_list_free(&list);
+        return report(rc);
+    }
+    if (!strcmp(command, "favorite") && argc == 3) {
+        char *expanded = expand_path(argv[2]);
+        char *absolute = expanded ? realpath(expanded, NULL) : NULL;
+        free(expanded);
+        if (!absolute) return report(AP_NOT_FOUND);
+        int favorite = 0;
+        int rc = ap_favorite_toggle(absolute, &favorite);
+        if (rc == AP_OK) printf("%s: %s\n", favorite ? "Favorited" : "Unfavorited", absolute);
+        free(absolute);
+        return report(rc);
+    }
+    if (!strcmp(command, "list") && argc == 3) {
+        ap_path_list list = {0};
+        int rc = ap_library_scan(argv[2], &list);
+        for (size_t i = 0; i < list.count; ++i) puts(list.paths[i]);
+        ap_path_list_free(&list);
+        return report(rc);
+    }
+    if (!strcmp(command, "clear") && argc == 2) return report(ap_wallpaper_clear());
+    config_t cfg;
+    int rc = config_load(&cfg);
+    if (rc != AP_OK) return report(rc);
+    if ((!strcmp(command, "status") || !strcmp(command, "backend")) && argc == 2) {
+        printf("Preferred backend: %s\nDetected backend: %s\n", backend_to_string(cfg.backend), backend_to_string(detect_backend()));
+        if (!strcmp(command, "status")) printf("Mode: %s\nLast wallpaper: %s\n", cfg.mode, cfg.last_wallpaper[0] ? cfg.last_wallpaper : "(none)");
+        return AP_OK;
+    }
+    if (strcmp(command, "set") && strcmp(command, "random") && strcmp(command, "daemon")) {
+        usage(argv[0]); return report(AP_INVALID);
+    }
+    const char *argument;
+    rc = options(argc, argv, &cfg, &argument);
+    if (rc != AP_OK || !argument) return report(AP_INVALID);
+    char *path = NULL;
+    if (!strcmp(command, "random")) rc = ap_library_random(argument, &path);
+    else { path = expand_path(argument); rc = path ? AP_OK : AP_NOMEM; }
+    if (rc != AP_OK) return report(rc);
+    if (!strcmp(command, "daemon")) {
+        rc = daemon_start(path, &cfg);
+        if (rc == AP_OK) printf("Daemon started (%d s)\n", cfg.daemon_interval);
+    } else {
+        ap_apply_result result;
+        rc = ap_wallpaper_apply(path, &cfg, AP_APPLY_SAVE_OPTIONS, &result);
+        if (rc == AP_OK) {
+            printf("Applied with %s: %s\n", backend_to_string(result.backend), path);
+            if (result.persistence != AP_OK) fprintf(stderr, "History/config: %s\n", ap_error_string(result.persistence));
+            if (result.theme != AP_OK) fprintf(stderr, "Theme/hook: %s\n", ap_error_string(result.theme));
+        }
+    }
+    free(path);
+    return report(rc);
 }

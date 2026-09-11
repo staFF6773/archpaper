@@ -136,6 +136,8 @@ void SettingsPanel::setupUi() {
     m_intervalSpin->setValue(300);
     m_intervalSpin->setSuffix(" s");
     m_intervalSpin->setToolTip("Interval between automatic changes");
+    connect(m_intervalSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &SettingsPanel::settingsChanged);
 
     m_daemonButton = new QPushButton("Start daemon");
     m_daemonButton->setCheckable(true);

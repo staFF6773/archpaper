@@ -49,6 +49,7 @@ signals:
     void imageSelected(const QString &path);
     void imageDoubleClicked(const QString &path);
     void countChanged(int visible, int total);
+    void errorOccurred(const QString &message);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

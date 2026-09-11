@@ -17,6 +17,7 @@
 
 extern "C" {
 #include "archpaper/backend.h"
+#include "archpaper/config.h"
 }
 
 QT_BEGIN_NAMESPACE
@@ -27,6 +28,7 @@ class QLineEdit;
 class QPushButton;
 class QStackedWidget;
 class QToolButton;
+class QThread;
 QT_END_NAMESPACE
 
 class WallpaperGrid;
@@ -75,15 +77,12 @@ private:
     void applyStyleSheet();
 
     void loadConfig();
-    void saveCurrentConfig(const char *path);
+    void saveCurrentConfig();
+    bool readUiConfig(config_t *cfg);
 
     void loadFolders();
-    void saveFolders();
     void loadFavorites();
-    void saveFavorites();
     void loadRecent();
-    void saveRecent();
-    void addToRecent(const QString &path);
 
     bool isFavorite(const QString &path) const;
     void refreshFavoriteButton();
@@ -93,8 +92,6 @@ private:
     void updateStatus(const QString &msg);
 
     backend_t selectedBackend() const;
-    backend_t preferredBackendFor(const QString &path) const;
-    bool readDaemonPid(int *pid);
 
     /* UI composition */
     NavSidebar *m_sidebar;
@@ -122,6 +119,8 @@ private:
     /* State */
     NavSidebar::Section m_currentSection = NavSidebar::Home;
     QString m_currentFolder;
+    bool m_loadingConfig = true;
+    QThread *m_applyThread = nullptr;
 
     QStringList m_favoritePaths;
     QStringList m_recentPaths;

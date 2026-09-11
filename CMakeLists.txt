@@ -1,15 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
-project(archpaper LANGUAGES C CXX)
+project(archpaper LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
+option(ARCHPAPER_BUILD_GUI "Build the optional Qt interface" ON)
 
 # Shared C core (static library)
 add_library(archpaper_core STATIC
@@ -18,6 +12,13 @@ add_library(archpaper_core STATIC
     src/core/daemon.c
     src/core/utils.c
     src/core/wallust.c
+    src/core/error.c
+    src/core/process.c
+    src/core/storage.c
+    src/core/cache.c
+    src/core/library.c
+    src/core/history.c
+    src/core/wallpaper.c
 )
 
 target_include_directories(archpaper_core PUBLIC
@@ -26,6 +27,21 @@ target_include_directories(archpaper_core PUBLIC
 )
 
 target_compile_definitions(archpaper_core PRIVATE _DEFAULT_SOURCE)
+target_compile_options(archpaper_core PRIVATE -Wall -Wextra -Wpedantic)
+
+if(ARCHPAPER_BUILD_GUI)
+    set(CLI_TARGET archpaper-cli)
+else()
+    set(CLI_TARGET archpaper)
+endif()
+add_executable(${CLI_TARGET} src/cli/entry.c src/cli/main.c)
+target_link_libraries(${CLI_TARGET} PRIVATE archpaper_core)
+
+if(ARCHPAPER_BUILD_GUI)
+enable_language(CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 # Main executable: CLI + Qt GUI
 add_executable(archpaper
@@ -47,13 +63,24 @@ add_executable(archpaper
 target_link_libraries(archpaper PRIVATE
     archpaper_core
     Qt6::Widgets
-    Qt6::Multimedia
-    Qt6::MultimediaWidgets
 )
+set_target_properties(archpaper PROPERTIES AUTOMOC ON AUTORCC ON)
+endif()
 
 # Installation
 include(GNUInstallDirs)
 install(TARGETS archpaper
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+if(ARCHPAPER_BUILD_GUI)
+    install(TARGETS archpaper-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(process-helper tests/process_helper.c)
+    add_executable(core-test tests/core_test.c)
+    target_link_libraries(core-test PRIVATE archpaper_core)
+    add_test(NAME core COMMAND core-test $<TARGET_FILE:process-helper> $<TARGET_FILE:${CLI_TARGET}>)
+    set_tests_properties(core PROPERTIES TIMEOUT 30)
+endif()

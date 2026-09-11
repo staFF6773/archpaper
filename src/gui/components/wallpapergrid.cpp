@@ -13,8 +13,6 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
-#include <QProcess>
-#include <QRandomGenerator>
 #include <QStandardPaths>
 #include <QTemporaryFile>
 #include <QHBoxLayout>
@@ -29,27 +27,23 @@
 #include <QShortcut>
 #include <QVBoxLayout>
 
+#include "archpaper/cache.h"
+#include "archpaper/library.h"
+extern "C" {
+#include "archpaper/utils.h"
+}
+
 namespace {
 
 constexpr int THUMB_WIDTH = 180;
 constexpr int THUMB_HEIGHT = 101;
 
-QString ext(const QString &path) {
-    return QFileInfo(path).suffix().toLower();
-}
-
 bool isAnimatedImage(const QString &path) {
-    QString e = ext(path);
-    return e == "gif" || e == "webp";
+    return is_animated_image(path.toUtf8().constData());
 }
 
 bool isVideo(const QString &path) {
-    QString e = ext(path);
-    return e == "mp4" || e == "webm" || e == "mkv" || e == "mov" || e == "avi" || e == "ogv";
-}
-
-bool isAnimatedFile(const QString &path) {
-    return isAnimatedImage(path) || isVideo(path);
+    return is_video(path.toUtf8().constData());
 }
 
 QString mediaBadgeText(const QString &path) {
@@ -162,19 +156,18 @@ void WallpaperGrid::addWallpaper(const QString &path) {
 void WallpaperGrid::loadFromFolder(const QString &folder) {
     clear();
 
-    QDir dir(folder);
-    QStringList filters;
-    filters << "*.png" << "*.jpg" << "*.jpeg" << "*.webp" << "*.bmp" << "*.gif" << "*.tif" << "*.tiff"
-            << "*.mp4" << "*.webm" << "*.mkv" << "*.mov" << "*.avi" << "*.ogv";
-    QFileInfoList files = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+    ap_path_list files = {};
+    const ap_result rc = ap_library_scan(folder.toUtf8().constData(), &files);
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    for (const QFileInfo &info : files) {
-        addWallpaper(info.absoluteFilePath());
+    for (size_t i = 0; i < files.count; ++i) {
+        addWallpaper(QString::fromUtf8(files.paths[i]));
     }
+    ap_path_list_free(&files);
     QApplication::restoreOverrideCursor();
 
     refreshFilter();
+    if (rc != AP_OK) emit errorOccurred(QString::fromUtf8(ap_error_string(rc)));
 }
 
 void WallpaperGrid::setWallpapers(const QStringList &paths) {
@@ -220,13 +213,12 @@ void WallpaperGrid::selectRandom() {
     int visible = visibleCount();
     if (visible == 0) return;
 
-    int idx;
-    do {
-        idx = QRandomGenerator::global()->bounded(m_list->count());
-    } while (m_list->item(idx)->isHidden());
-
-    m_list->setCurrentRow(idx);
-    onSelectionChanged();
+    size_t selected;
+    if (ap_random_index(static_cast<size_t>(visible), &selected) != AP_OK) return;
+    for (int i = 0; i < m_list->count(); ++i) {
+        if (m_list->item(i)->isHidden()) continue;
+        if (selected-- == 0) { m_list->setCurrentRow(i); return; }
+    }
 }
 
 void WallpaperGrid::setFilter(const QString &text) {
@@ -303,30 +295,6 @@ static QPixmap roundedThumbnail(const QImage &sourceImage, const QSize &targetSi
     return canvas;
 }
 
-static bool extractVideoFrame(const QString &videoPath, const QString &outputImage) {
-    /* Try ffmpegthumbnailer first because it is fast and lightweight. */
-    if (!QStandardPaths::findExecutable("ffmpegthumbnailer").isEmpty()) {
-        QProcess proc;
-        proc.start("ffmpegthumbnailer", {"-i", videoPath, "-o", outputImage, "-s", "320"});
-        if (proc.waitForFinished(8000) && proc.exitCode() == 0) {
-            return QFile::exists(outputImage);
-        }
-    }
-
-    /* Fallback to ffmpeg. */
-    if (!QStandardPaths::findExecutable("ffmpeg").isEmpty()) {
-        QProcess proc;
-        proc.start("ffmpeg", {"-y", "-ss", "00:00:01", "-i", videoPath,
-                              "-vf", "scale=320:-1", "-vframes", "1",
-                              "-q:v", "2", outputImage});
-        if (proc.waitForFinished(15000) && proc.exitCode() == 0) {
-            return QFile::exists(outputImage);
-        }
-    }
-
-    return false;
-}
-
 QPixmap WallpaperGrid::createThumbnail(const QString &path, const QSize &targetSize) {
     if (isVideo(path)) {
         QTemporaryFile tmp(QDir::tempPath() + "/archpaper_video_thumb_XXXXXX.png");
@@ -334,7 +302,7 @@ QPixmap WallpaperGrid::createThumbnail(const QString &path, const QSize &targetS
         if (tmp.open()) {
             QString tmpPath = tmp.fileName();
             tmp.close();
-            if (extractVideoFrame(path, tmpPath)) {
+            if (ap_thumbnail_extract(path.toUtf8().constData(), tmpPath.toUtf8().constData()) == AP_OK) {
                 QImage frame(tmpPath);
                 if (!frame.isNull()) {
                     return roundedThumbnail(frame, targetSize);

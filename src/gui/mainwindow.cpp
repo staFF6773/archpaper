@@ -29,7 +29,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
-#include <QTextStream>
+#include <QThread>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -44,45 +44,28 @@ extern "C" {
 #include "archpaper/daemon.h"
 #include "archpaper/utils.h"
 #include "archpaper/wallust.h"
+#include "archpaper/history.h"
+#include "archpaper/process.h"
+#include "archpaper/storage.h"
+#include "archpaper/wallpaper.h"
 }
 
 #include <cstdlib>
-#include <ctime>
-#include <signal.h>
-#include <unistd.h>
+#include <memory>
 
 namespace {
-
-QString configDir() {
-    QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-    path += "/archpaper";
-    return path;
-}
-
-QString favoritesFile() {
-    return configDir() + "/favorites";
-}
-
-QString recentFile() {
-    return configDir() + "/recent";
-}
 
 QString defaultWallpaperDir() {
     return QDir::homePath() + "/Pictures/Wallpapers";
 }
 
-QString ext(const QString &path) {
-    return QFileInfo(path).suffix().toLower();
-}
-
-bool isAnimatedImage(const QString &path) {
-    QString e = ext(path);
-    return e == "gif" || e == "webp";
-}
-
-bool isVideo(const QString &path) {
-    QString e = ext(path);
-    return e == "mp4" || e == "webm" || e == "mkv" || e == "mov" || e == "avi" || e == "ogv";
+QStringList historyPaths(ap_history_kind kind, ap_result *result) {
+    ap_path_list list = {};
+    *result = ap_history_load(kind, &list);
+    QStringList paths;
+    for (size_t i = 0; i < list.count; ++i) paths.append(QString::fromUtf8(list.paths[i]));
+    ap_path_list_free(&list);
+    return paths;
 }
 
 } // namespace
@@ -92,9 +75,17 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setupUi();
     loadConfig();
+    m_loadingConfig = false;
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    if (m_applyThread) {
+        m_applyThread->disconnect(this);
+        m_applyThread->requestInterruption();
+        m_applyThread->wait();
+        delete m_applyThread;
+    }
+}
 
 void MainWindow::applyStyleSheet() {
     qApp->setStyle("Fusion");
@@ -244,6 +235,7 @@ void MainWindow::setupUi() {
     connect(m_grid, &WallpaperGrid::imageSelected, this, &MainWindow::onImageSelected);
     connect(m_grid, &WallpaperGrid::imageDoubleClicked, this, &MainWindow::onImageDoubleClicked);
     connect(m_grid, &WallpaperGrid::countChanged, this, &MainWindow::onGridCountChanged);
+    connect(m_grid, &WallpaperGrid::errorOccurred, this, &MainWindow::updateStatus);
 
     m_preview = new PreviewPanel;
     auto *splitter = new QSplitter(Qt::Horizontal);
@@ -317,7 +309,7 @@ void MainWindow::setupUi() {
 
 void MainWindow::loadConfig() {
     config_t cfg;
-    config_load(&cfg);
+    const int configResult = config_load(&cfg);
 
     int backendIndex;
     switch (cfg.backend) {
@@ -339,6 +331,9 @@ void MainWindow::loadConfig() {
     m_settingsPanel->setMpvpaperProfile(QString::fromUtf8(cfg.mpvpaper_profile));
     m_settingsPanel->setMpvpaperHwdec(cfg.mpvpaper_hwdec != 0);
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
+    int daemonPid = 0;
+    if (daemon_status(&daemonPid) == AP_OK)
+        m_settingsPanel->setDaemonRunning(daemonPid > 0);
 
     loadFavorites();
     loadRecent();
@@ -352,47 +347,43 @@ void MainWindow::loadConfig() {
     if (!wallust_available()) {
         status += " | wallust not available";
     }
+    if (configResult != AP_OK)
+        status = QString("Configuration: %1").arg(ap_error_string(static_cast<ap_result>(configResult)));
     updateStatus(status);
 
     /* loadFolders() already selects the first folder and loads the grid. */
 }
 
-void MainWindow::saveCurrentConfig(const char *path) {
-    config_t cfg;
-    config_load(&cfg);
-
-    cfg.backend = selectedBackend();
-    cfg.wallust_enabled = m_settingsPanel->wallustEnabled() ? 1 : 0;
-
-    QByteArray hook = m_settingsPanel->wallustHook().toUtf8();
-    strncpy(cfg.wallust_hook, hook.constData(), sizeof(cfg.wallust_hook) - 1);
-    cfg.wallust_hook[sizeof(cfg.wallust_hook) - 1] = '\0';
-
-    QByteArray mode = m_modeCombo->currentText().toUtf8();
-    strncpy(cfg.mode, mode.constData(), sizeof(cfg.mode) - 1);
-    cfg.mode[sizeof(cfg.mode) - 1] = '\0';
-
-    if (path) {
-        strncpy(cfg.last_wallpaper, path, sizeof(cfg.last_wallpaper) - 1);
-        cfg.last_wallpaper[sizeof(cfg.last_wallpaper) - 1] = '\0';
+bool MainWindow::readUiConfig(config_t *cfg) {
+    int rc = config_load(cfg);
+    if (rc != AP_OK) {
+        updateStatus(QString("Configuration: %1").arg(ap_error_string(static_cast<ap_result>(rc))));
+        return false;
     }
+    cfg->backend = selectedBackend();
+    cfg->wallust_enabled = m_settingsPanel->wallustEnabled();
+    cfg->mpvpaper_hwdec = m_settingsPanel->mpvpaperHwdec();
+    cfg->daemon_interval = m_settingsPanel->interval();
+    rc |= ap_copy_string(cfg->mode, sizeof(cfg->mode), m_modeCombo->currentText().toUtf8().constData());
+    rc |= ap_copy_string(cfg->wallust_hook, sizeof(cfg->wallust_hook), m_settingsPanel->wallustHook().toUtf8().constData());
+    rc |= ap_copy_string(cfg->cache_quality, sizeof(cfg->cache_quality), m_settingsPanel->cacheQuality().toUtf8().constData());
+    rc |= ap_copy_string(cfg->mpvpaper_profile, sizeof(cfg->mpvpaper_profile), m_settingsPanel->mpvpaperProfile().toUtf8().constData());
+    cfg->folder_count = 0;
+    for (int i = 0; i < m_sidebar->folderCount(); ++i)
+        rc |= config_add_folder(cfg, m_sidebar->folderAt(i).toUtf8().constData());
+    if (rc || config_validate(cfg) != AP_OK) {
+        updateStatus("Invalid settings or a path is too long");
+        return false;
+    }
+    return true;
+}
 
-    cfg.daemon_interval = m_settingsPanel->interval();
-
-    QByteArray cacheQuality = m_settingsPanel->cacheQuality().toUtf8();
-    strncpy(cfg.cache_quality, cacheQuality.constData(), sizeof(cfg.cache_quality) - 1);
-    cfg.cache_quality[sizeof(cfg.cache_quality) - 1] = '\0';
-
-    QByteArray mpvpaperProfile = m_settingsPanel->mpvpaperProfile().toUtf8();
-    strncpy(cfg.mpvpaper_profile, mpvpaperProfile.constData(), sizeof(cfg.mpvpaper_profile) - 1);
-    cfg.mpvpaper_profile[sizeof(cfg.mpvpaper_profile) - 1] = '\0';
-
-    cfg.mpvpaper_hwdec = m_settingsPanel->mpvpaperHwdec() ? 1 : 0;
-
-    config_save(&cfg);
-    saveFolders();
-    saveFavorites();
-    saveRecent();
+void MainWindow::saveCurrentConfig() {
+    if (m_loadingConfig) return;
+    config_t cfg;
+    if (!readUiConfig(&cfg)) return;
+    const int rc = config_save(&cfg);
+    if (rc != AP_OK) updateStatus(ap_error_string(static_cast<ap_result>(rc)));
 }
 
 void MainWindow::loadFolders() {
@@ -403,7 +394,7 @@ void MainWindow::loadFolders() {
     if (cfg.folder_count == 0) {
         QString defaultDir = defaultWallpaperDir();
         if (!QDir(defaultDir).exists()) {
-            QDir().mkpath(defaultDir);
+            ap_mkdirs(defaultDir.toUtf8().constData());
         }
         folders.append(defaultDir);
     } else {
@@ -413,82 +404,20 @@ void MainWindow::loadFolders() {
     }
 
     m_sidebar->setFolders(folders);
-    onFolderSelected(m_sidebar->selectedFolder());
-}
-
-void MainWindow::saveFolders() {
-    config_t cfg;
-    config_load(&cfg);
-
-    for (int i = cfg.folder_count - 1; i >= 0; --i) {
-        config_remove_folder(&cfg, i);
-    }
-
-    for (int i = 0; i < m_sidebar->folderCount(); i++) {
-        QByteArray folder = m_sidebar->folderAt(i).toUtf8();
-        config_add_folder(&cfg, folder.constData());
-    }
-
-    config_save(&cfg);
 }
 
 void MainWindow::loadFavorites() {
-    m_favoritePaths.clear();
-    QFile f(favoritesFile());
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    QTextStream in(&f);
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        if (!line.isEmpty() && QFile::exists(line)) {
-            m_favoritePaths.append(line);
-        }
-    }
-}
-
-void MainWindow::saveFavorites() {
-    QDir().mkpath(configDir());
-    QFile f(favoritesFile());
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-
-    QTextStream out(&f);
-    for (const QString &path : m_favoritePaths) {
-        out << path << "\n";
-    }
+    ap_result rc;
+    const QStringList paths = historyPaths(AP_FAVORITES, &rc);
+    if (rc == AP_OK) m_favoritePaths = paths;
+    else updateStatus(ap_error_string(rc));
 }
 
 void MainWindow::loadRecent() {
-    m_recentPaths.clear();
-    QFile f(recentFile());
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    QTextStream in(&f);
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        if (!line.isEmpty() && QFile::exists(line)) {
-            m_recentPaths.append(line);
-        }
-    }
-}
-
-void MainWindow::saveRecent() {
-    QDir().mkpath(configDir());
-    QFile f(recentFile());
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-
-    QTextStream out(&f);
-    for (const QString &path : m_recentPaths) {
-        out << path << "\n";
-    }
-}
-
-void MainWindow::addToRecent(const QString &path) {
-    m_recentPaths.removeAll(path);
-    m_recentPaths.prepend(path);
-    while (m_recentPaths.size() > 50) {
-        m_recentPaths.removeLast();
-    }
-    saveRecent();
+    ap_result rc;
+    const QStringList paths = historyPaths(AP_RECENT, &rc);
+    if (rc == AP_OK) m_recentPaths = paths;
+    else updateStatus(ap_error_string(rc));
 }
 
 bool MainWindow::isFavorite(const QString &path) const {
@@ -498,7 +427,7 @@ bool MainWindow::isFavorite(const QString &path) const {
 void MainWindow::refreshFavoriteButton() {
     QString path = m_grid->selectedPath();
     bool hasSelection = !path.isEmpty();
-    m_applyBtn->setEnabled(hasSelection);
+    m_applyBtn->setEnabled(hasSelection && !m_applyThread);
     m_favoriteBtn->setEnabled(hasSelection);
 
     if (path.isEmpty()) {
@@ -537,14 +466,18 @@ void MainWindow::setLibrarySection(NavSidebar::Section section) {
                 m_grid->loadFromFolder(m_currentFolder);
             } else if (!m_sidebar->selectedFolder().isEmpty()) {
                 onFolderSelected(m_sidebar->selectedFolder());
+            } else {
+                m_grid->setWallpapers({});
             }
             break;
         case NavSidebar::Favorites:
             m_sectionTitle->setText("Favorites");
+            loadFavorites();
             m_grid->setWallpapers(m_favoritePaths);
             break;
         case NavSidebar::Recent:
             m_sectionTitle->setText("Recent");
+            loadRecent();
             m_grid->setWallpapers(m_recentPaths);
             break;
         case NavSidebar::Settings:
@@ -563,17 +496,17 @@ void MainWindow::onFolderSelected(const QString &folder) {
 }
 
 void MainWindow::onFolderAdded(const QString &folder) {
-    config_t cfg;
-    config_load(&cfg);
-    config_add_folder(&cfg, folder.toUtf8().constData());
-    config_save(&cfg);
+    Q_UNUSED(folder);
+    saveCurrentConfig();
 }
 
 void MainWindow::onFolderRemoved(int row) {
-    config_t cfg;
-    config_load(&cfg);
-    config_remove_folder(&cfg, row);
-    config_save(&cfg);
+    Q_UNUSED(row);
+    if (m_sidebar->selectedFolder().isEmpty()) {
+        m_currentFolder.clear();
+        if (m_currentSection == NavSidebar::Home) m_grid->setWallpapers({});
+    }
+    saveCurrentConfig();
 }
 
 void MainWindow::onImageSelected(const QString &path) {
@@ -605,12 +538,9 @@ void MainWindow::onToggleFavorite() {
     QString path = m_grid->selectedPath();
     if (path.isEmpty()) return;
 
-    if (m_favoritePaths.contains(path)) {
-        m_favoritePaths.removeAll(path);
-    } else {
-        m_favoritePaths.append(path);
-    }
-    saveFavorites();
+    const ap_result rc = ap_favorite_toggle(path.toUtf8().constData(), nullptr);
+    if (rc != AP_OK) { updateStatus(ap_error_string(rc)); return; }
+    loadFavorites();
     refreshFavoriteButton();
 
     if (m_currentSection == NavSidebar::Favorites) {
@@ -637,13 +567,13 @@ void MainWindow::onRandom() {
     if (!path.isEmpty()) {
         m_preview->setWallpaper(path);
         applySelectedImage(path);
-        updateStatus(QString("Random: %1").arg(QFileInfo(path).fileName()));
     }
 }
 
 void MainWindow::onClear() {
-    clear_wallpaper();
-    updateStatus("Wallpaper cleared");
+    if (m_applyThread) { updateStatus("A wallpaper is still being applied"); return; }
+    const ap_result rc = ap_wallpaper_clear();
+    updateStatus(rc == AP_OK ? "Wallpaper cleared" : ap_error_string(rc));
 }
 
 void MainWindow::onTogglePreview() {
@@ -660,70 +590,35 @@ void MainWindow::onBackendChanged(int index) {
     if (!backend_available(b)) {
         updateStatus(QString("Backend '%1' not available").arg(backend_to_string(b)));
     }
-    saveCurrentConfig(nullptr);
+    saveCurrentConfig();
 }
 
 void MainWindow::onModeChanged(int index) {
     (void)index;
-    saveCurrentConfig(nullptr);
+    saveCurrentConfig();
 }
 
 void MainWindow::onSettingsChanged() {
-    saveCurrentConfig(nullptr);
+    saveCurrentConfig();
 }
 
 void MainWindow::onDaemonRequested(bool start) {
+    int rc;
     if (start) {
-        if (m_currentFolder.isEmpty() || !QDir(m_currentFolder).exists()) {
-            QMessageBox::warning(this, "Daemon", "Select a valid folder first.");
-            m_settingsPanel->setDaemonRunning(false);
-            return;
-        }
-
-        backend_t b = selectedBackend();
-        if (!backend_available(b)) {
-            QMessageBox::warning(this, "Daemon",
-                                 QString("Selected backend '%1' is not available.").arg(backend_to_string(b)));
-            m_settingsPanel->setDaemonRunning(false);
-            return;
-        }
-
-        QByteArray mode = m_modeCombo->currentText().toUtf8();
-        int interval = m_settingsPanel->interval();
-
-        int enable_wallust = m_settingsPanel->wallustEnabled() ? 1 : 0;
         config_t cfg;
-        config_load(&cfg);
-        strncpy(cfg.wallust_hook, m_settingsPanel->wallustHook().toUtf8().constData(),
-                sizeof(cfg.wallust_hook) - 1);
-        cfg.wallust_hook[sizeof(cfg.wallust_hook) - 1] = '\0';
-
-        strncpy(cfg.cache_quality, m_settingsPanel->cacheQuality().toUtf8().constData(),
-                sizeof(cfg.cache_quality) - 1);
-        cfg.cache_quality[sizeof(cfg.cache_quality) - 1] = '\0';
-
-        if (daemonize_random(m_currentFolder.toUtf8().constData(), interval, b, mode.constData(),
-                             enable_wallust, cfg.wallust_hook, cfg.cache_quality) != 0) {
-            QMessageBox::critical(this, "Daemon", "Could not start daemon.");
+        if (!readUiConfig(&cfg)) {
             m_settingsPanel->setDaemonRunning(false);
             return;
         }
-
-        m_settingsPanel->setDaemonRunning(true);
-        updateStatus(QString("Daemon started (%1s) with %2").arg(interval).arg(backend_to_string(b)));
+        rc = daemon_start(m_currentFolder.toUtf8().constData(), &cfg);
     } else {
-        int pid = 0;
-        if (readDaemonPid(&pid)) {
-            if (kill(pid, SIGTERM) == 0) {
-                updateStatus("Daemon stopped");
-            } else {
-                updateStatus("Could not stop daemon");
-            }
-        } else {
-            updateStatus("No active daemon");
-        }
-        m_settingsPanel->setDaemonRunning(false);
+        rc = daemon_stop();
     }
+    int pid = 0;
+    daemon_status(&pid);
+    m_settingsPanel->setDaemonRunning(pid > 0);
+    updateStatus(rc == AP_OK ? (start ? "Daemon started" : "Daemon stopped")
+                            : ap_error_string(static_cast<ap_result>(rc)));
 }
 
 backend_t MainWindow::selectedBackend() const {
@@ -734,61 +629,51 @@ backend_t MainWindow::selectedBackend() const {
     return BACKEND_SWAYBG;
 }
 
-backend_t MainWindow::preferredBackendFor(const QString &path) const {
-    return select_backend_for_path(path.toUtf8().constData(), selectedBackend());
-}
-
 void MainWindow::applySelectedImage(const QString &path) {
-    if (!QFile::exists(path)) {
-        updateStatus("The wallpaper does not exist");
-        return;
-    }
-
-    config_t cfg;
-    config_load(&cfg);
-
-    backend_t b = preferredBackendFor(path);
-    if (!backend_available(b)) {
-        updateStatus(QString("Backend not available: %1").arg(backend_to_string(b)));
-        return;
-    }
-
-    QByteArray mode = m_modeCombo->currentText().toUtf8();
-    if (set_wallpaper(b, path.toUtf8().constData(), mode.constData(),
-                      cfg.cache_quality) != 0) {
-        updateStatus("Error applying wallpaper");
-        return;
-    }
-
-    addToRecent(path);
-    saveCurrentConfig(path.toUtf8().constData());
-
-    if (m_settingsPanel->wallustEnabled()) {
-        if (wallust_available()) {
-            wallust_run(path.toUtf8().constData());
-        }
-        wallust_hook_run(cfg.wallust_hook, path.toUtf8().constData());
-        if (wallust_available()) {
-            updateStatus(QString("Applied with wallust: %1").arg(QFileInfo(path).fileName()));
-        } else {
-            updateStatus(QString("Applied; wallust not available: %1").arg(QFileInfo(path).fileName()));
-        }
-    } else {
-        updateStatus(QString("Applied: %1").arg(QFileInfo(path).fileName()));
-    }
+    if (m_applyThread) { updateStatus("A wallpaper is still being applied"); return; }
+    struct ApplyTask {
+        config_t options;
+        QByteArray path;
+        ap_result status = AP_OK;
+        ap_apply_result result = {};
+    };
+    auto task = std::make_shared<ApplyTask>();
+    if (!readUiConfig(&task->options)) return;
+    task->path = path.toUtf8();
+    /* Qt only marshals work/results. All backend, cache, history and theme
+     * decisions are made by the same C function used by the CLI and daemon. */
+    m_applyThread = QThread::create([task]() {
+        ap_process_set_cancel_check([](void *) -> int {
+            return QThread::currentThread()->isInterruptionRequested();
+        }, nullptr);
+        task->status = ap_wallpaper_apply(task->path.constData(), &task->options, 0, &task->result);
+        ap_process_set_cancel_check(nullptr, nullptr);
+    });
+    m_applyBtn->setEnabled(false);
+    m_settingsPanel->setEnabled(false);
+    m_backendCombo->setEnabled(false);
+    m_modeCombo->setEnabled(false);
+    updateStatus(QString("Applying: %1…").arg(QFileInfo(path).fileName()));
+    connect(m_applyThread, &QThread::finished, this, [this, task, path]() {
+        m_applyThread->deleteLater();
+        m_applyThread = nullptr;
+        m_settingsPanel->setEnabled(true);
+        m_backendCombo->setEnabled(true);
+        m_modeCombo->setEnabled(true);
+        refreshFavoriteButton();
+        if (task->status != AP_OK) { updateStatus(ap_error_string(task->status)); return; }
+        loadRecent();
+        QString message = QString("Applied: %1").arg(QFileInfo(path).fileName());
+        if (task->result.persistence != AP_OK)
+            message += QString(" | History/config: %1").arg(ap_error_string(task->result.persistence));
+        if (task->result.theme != AP_OK)
+            message += QString(" | Theme/hook: %1").arg(ap_error_string(task->result.theme));
+        updateStatus(message);
+    });
+    m_applyThread->start();
 }
 
 void MainWindow::updateStatus(const QString &msg) {
     m_statusLabel->setText(msg);
     m_statusLabel->setToolTip(msg);
-}
-
-bool MainWindow::readDaemonPid(int *pid) {
-    FILE *f = fopen("/tmp/archpaper.pid", "r");
-    if (!f) return false;
-    int p;
-    bool ok = (fscanf(f, "%d", &p) == 1);
-    fclose(f);
-    if (ok && pid) *pid = p;
-    return ok;
 }

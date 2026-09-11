@@ -9,6 +9,7 @@
  */
 
 #include "archpaper/utils.h"
+#include "archpaper/library.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -22,7 +23,7 @@
 
 const char *get_home(void) {
     const char *home = getenv("HOME");
-    if (!home) {
+    if (!home || !*home) {
         struct passwd *pw = getpwuid(getuid());
         if (pw) home = pw->pw_dir;
     }
@@ -31,7 +32,7 @@ const char *get_home(void) {
 
 char *expand_path(const char *path) {
     if (!path) return NULL;
-    if (path[0] != '~') return strdup(path);
+    if (path[0] != '~' || (path[1] && path[1] != '/')) return strdup(path);
 
     const char *home = get_home();
     size_t len = strlen(home) + strlen(path);
@@ -91,34 +92,7 @@ int is_animated_image(const char *path) {
 }
 
 char *random_image(const char *dir) {
-    DIR *d = opendir(dir);
-    if (!d) return NULL;
-
-    char **files = NULL;
-    size_t count = 0;
-    struct dirent *ent;
-
-    while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.') continue;
-
-        char full[4096];
-        snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
-        if (is_image(full) || is_video(full)) {
-            char **tmp = realloc(files, (count + 1) * sizeof(char *));
-            if (!tmp) break;
-            files = tmp;
-            files[count++] = strdup(full);
-        }
-    }
-    closedir(d);
-
     char *selected = NULL;
-    if (count > 0) {
-        srand((unsigned)time(NULL) ^ (unsigned)getpid());
-        selected = strdup(files[rand() % count]);
-    }
-
-    for (size_t i = 0; i < count; i++) free(files[i]);
-    free(files);
+    ap_library_random(dir, &selected);
     return selected;
 }

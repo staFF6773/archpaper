@@ -17,12 +17,8 @@
 
 QT_BEGIN_NAMESPACE
 class QLabel;
-class QProcess;
-class QStackedWidget;
+class QThread;
 class QTemporaryFile;
-class QMovie;
-class QMediaPlayer;
-class QVideoWidget;
 QT_END_NAMESPACE
 
 class PreviewPanel : public QFrame {
@@ -55,25 +51,20 @@ private:
     void showEmpty();
     void updateInfo(const QFileInfo &info, const QString &badge);
 
-    QStackedWidget *m_stack;
     QLabel *m_imageLabel;
-    QVideoWidget *m_videoWidget;
     QLabel *m_infoLabel;
     QLabel *m_header;
 
-    QMovie *m_movie = nullptr;
-    QMediaPlayer *m_player = nullptr;
 
     QString m_currentPath;
     bool m_isFavorite = false;
     bool m_scalingDirty = false;
-    bool m_isAnimated = false;
-    bool m_isVideo = false;
     QPixmap m_originalPixmap;
 
     /* Async video thumbnail extraction */
-    QProcess *m_extractor = nullptr;
+    QThread *m_extractor = nullptr;
     QTemporaryFile *m_extractorTemp = nullptr;
+    quint64 m_generation = 0;
 };
 
 #endif // PREVIEWPANEL_H

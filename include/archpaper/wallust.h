@@ -18,8 +18,8 @@ extern "C" {
 /* Check whether the 'wallust' binary is available in PATH. */
 int wallust_available(void);
 
-/* Run 'wallust run <image_path>' in the background.
- * Does not block the parent process. Returns 0 if the command was launched. */
+/* Wait for 'wallust run <image_path>' to finish (60-second limit).
+ * Returns an ap_result; AP_OK means the program exited successfully. */
 int wallust_run(const char *image_path);
 
 /* Run an additional post-wallust script only if hook_path is set

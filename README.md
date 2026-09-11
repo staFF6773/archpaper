@@ -1,6 +1,6 @@
 # archpaper
 
-Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI** and integrated CLI for autostart/scripts.
+Wallpaper manager for **Wayland** on Arch Linux and derivatives, with a **C17 core and standalone C CLI**, plus an optional **Qt6 Widgets GUI**.
 
 ## Features
 
@@ -12,24 +12,23 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with **Qt6 GUI*
   - Resizable, hideable preview with image information.
   - A single action bar for applying wallpapers, favorites and additional actions.
   - Scrollable Settings with backend/mode selectors and advanced options.
-- **Built-in Market** to browse and download wallpapers directly from **Wallhaven** (static images) and **MoeWalls** (live/animated wallpapers) without opening a browser.
 - **Quick filter** by file name across the current section.
 - **Double click** to apply a wallpaper directly.
 - **Favorites** and **Recent** wallpapers tracked automatically.
 - Backends **swaybg** (universal Wayland), **hyprpaper** (Hyprland), **awww** (efficient animated/GIF wallpapers) and **mpvpaper** (video wallpapers).
 - Automatic backend detection: prefers **awww** when available because it is the most efficient for animated and static wallpapers on Wayland.
 - Animated wallpaper support: GIF/WebP/MP4/WebM/MKV/MOV with automatic backend selection.
-- Optimized preview: only the selected wallpaper plays animation; it stops when switching to another item.
+- Lightweight static previews for images, animations and videos; frame extraction is handled by the C core.
+- Background application/conversion in the GUI, with interruptible external processes.
 - Daemon mode for automatic wallpaper changes by interval.
-- Persistent configuration in `~/.config/archpaper/config`.
+- Atomic configuration and history storage, respecting XDG directories.
+- Shared favorites, recent wallpapers and application behavior across GUI, CLI and daemon.
 
 ## Dependencies
 
 ```text
 swaybg
-qt6-base
-qt6-multimedia
-qt6-network
+qt6-base   # only for the optional GUI
 ```
 
 Optional:
@@ -39,6 +38,8 @@ hyprpaper
 awww      # efficient animated/GIF wallpapers on Wayland
 mpvpaper  # video wallpapers on Wayland
 wallust
+ffmpeg              # video thumbnails and oversized wallpaper conversions
+ffmpegthumbnailer   # faster video thumbnails
 ```
 
 To build:
@@ -54,6 +55,29 @@ base-devel
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
+
+### C-only build (no Qt or C++ compiler)
+
+```bash
+cmake -B build-cli -S . -DARCHPAPER_BUILD_GUI=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cli
+./build-cli/archpaper --help
+```
+
+The default build produces `archpaper` (GUI plus CLI) and `archpaper-cli` (pure C).
+With `ARCHPAPER_BUILD_GUI=OFF`, the pure C executable is named `archpaper`.
+
+### Tests
+
+```bash
+ctest --test-dir build-cli --output-on-failure
+```
+
+The C tests use isolated temporary directories and mock executables. They exercise
+configuration validation/atomic writes, process failures/timeouts/cancellation,
+library scanning, favorites, history, cache fallback, wallust/hook ordering and
+daemon lifecycle without Qt or a real Wayland session. Set `BUILD_TESTING=OFF` to
+omit test executables.
 
 ## Install
 
@@ -84,17 +108,7 @@ In the window:
 - Toggle the preview using **Preview** or **Ctrl+P**, and drag its divider to resize it.
 - Open **More** to apply a random wallpaper or clear the current wallpaper.
 - Press the star button to add/remove wallpapers from Favorites.
-- Open **Market** to browse wallpapers from Wallhaven and MoeWalls, download them, or download and apply them directly.
-- Open Settings to configure the backend, mode, wallust, the daemon and Market options (download folder, Wallhaven API key/purity).
-
-### Market
-
-The **Market** section lets you search online wallpaper sources without opening a browser.
-
-- **Source:** search Wallhaven (static images), MoeWalls (live/animated videos) or both.
-- **Purity:** filter Wallhaven results by SFW, Sketchy, NSFW or All (NSFW/All require a Wallhaven API key).
-- **Download folder:** choose where downloaded wallpapers are saved (defaults to `~/Pictures/Wallpapers`).
-- **Download** saves the wallpaper to your folder; **Download & Apply** also sets it immediately.
+- Open Settings to configure the backend, mode, wallust, video quality and the daemon.
 
 ### CLI
 
@@ -105,7 +119,18 @@ archpaper daemon <directory> --interval <seconds> [--wallust] [--wallust-hook <s
 archpaper clear
 archpaper status
 archpaper backend
+archpaper list <directory>
+archpaper favorite <image|video|gif>
+archpaper favorites
+archpaper recent
+archpaper daemon status
+archpaper daemon stop
 ```
+
+Use `archpaper-cli` instead in scripts to run the pure C binary from the default
+build. `--cache-quality original|monitor|low`,
+`--mpvpaper-profile quality|balanced|performance` and `--hwdec` are available for
+`set`, `random` and `daemon`. Invalid options are rejected before changing a wallpaper.
 
 ## Animated wallpapers
 
@@ -114,12 +139,12 @@ archpaper backend
 - **awww** is the preferred backend for animated images (GIF/WebP) and static images on Wayland; it is lightweight and fast.
 - **mpvpaper** is used for video files (MP4/WebM/MKV/MOV/AVI).
 
-If you select a backend such as `swaybg` or `hyprpaper` and apply an animated file, `archpaper` automatically switches to a compatible backend when available. The GUI previews the animation only for the selected item and stops it when you select another wallpaper, keeping CPU/GPU usage low.
+If you select a backend such as `swaybg` or `hyprpaper` and apply an animated file, `archpaper` automatically selects a compatible backend. The GUI displays a static frame to keep preview resource usage low; video frame extraction is cancelled when switching selections.
 
 To use animated wallpapers with the CLI:
 
 ```bash
-# Requires awww-daemon running for awww
+# Starts awww-daemon if needed
 archpaper set ~/Wallpapers/animation.gif --backend awww
 
 # Requires mpvpaper for video
@@ -156,6 +181,11 @@ killall -USR1 kitty 2>/dev/null
 makoctl reload 2>/dev/null
 ```
 
+The shared C application flow waits for wallust to finish before running the
+extra hook. Each has a 60-second timeout; a failed wallust run skips the extra
+hook. Post-apply theme/storage failures are reported separately from wallpaper
+application failures.
+
 ### GUI configuration
 
 The Settings section (gear icon in the sidebar) contains:
@@ -165,6 +195,12 @@ The Settings section (gear icon in the sidebar) contains:
 - **Daemon** controls for automatic wallpaper changes by interval.
 
 Favorites and recent wallpapers are stored in `~/.config/archpaper/favorites` and `~/.config/archpaper/recent`.
+
+`XDG_CONFIG_HOME` and `XDG_CACHE_HOME` are supported. Daemon/apply locks live in
+`$XDG_RUNTIME_DIR/archpaper`, with a private `/tmp/archpaper-<uid>` fallback.
+Daemon status is obtained from the kernel lock owner, so stale PID files do not
+identify a running daemon. A daemon change records the wallpaper without
+overwriting settings edited in the GUI.
 
 ## Composer integration
 
@@ -183,16 +219,29 @@ exec archpaper set ~/Pictures/wallpaper.jpg
 ## Project structure
 
 ```text
-include/archpaper/  # Public core API in C
-src/core/           # Core: backend, config, daemon, utils, wallust
-src/cli/            # CLI entry point
-src/gui/            # Qt6 GUI
+include/archpaper/  # Public C API (also callable from C++)
+src/core/           # C17 application logic
+  wallpaper.c       # Apply transaction shared by CLI, GUI and daemon
+  process.c         # argv execution, output capture, deadlines and cancellation
+  library.c         # Directory scanning and constant-memory random selection
+  history.c         # Locked, atomic favorites and recent-history updates
+  config.c          # Validated settings and atomic configuration merges
+  storage.c         # XDG paths, directories and atomic file writing
+  cache.c           # Media probing, conversion, pruning and thumbnail extraction
+  backend.c         # Wayland backend adapters
+  daemon.c          # Single-instance background worker and lifecycle
+  wallust.c         # Theme generation and ordered extra hooks
+src/cli/            # Standalone C entry point and command parsing
+src/gui/            # Optional Qt Widgets presentation layer and worker adapters
   components/       # Reusable UI widgets
   models/           # (future) data models
   delegates/        # (future) item delegates
   services/         # (future) config/thumbnail services
   theme/            # QSS stylesheet and resource file
+tests/              # C tests with mock processes and temporary data
 ```
+
+See [the core API notes](docs/core-api.md) for ownership, errors and threading.
 
 ## License
 

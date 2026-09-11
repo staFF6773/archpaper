@@ -11,6 +11,10 @@
 #ifndef ARCHPAPER_UTILS_H
 #define ARCHPAPER_UTILS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Expand a path that starts with ~ to the value of $HOME. */
 char *expand_path(const char *path);
 
@@ -25,7 +29,7 @@ int is_image(const char *path);
 int is_video(const char *path);
 int is_animated_image(const char *path);
 
-/* Return the extension of a path (lowercase, without the dot). */
+/* Borrow the extension from path (original case, without the dot). */
 const char *file_extension(const char *path);
 
 /* Return a random image/video from a directory (must be freed with free). */
@@ -33,5 +37,9 @@ char *random_image(const char *dir);
 
 /* Return the user's home directory. */
 const char *get_home(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
