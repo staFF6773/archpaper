@@ -20,6 +20,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[1], "sleep")) { pause_ms(5000); return 0; }
         if (!strcmp(argv[1], "flood")) {
             for (int i = 0; i < 200000; ++i) fputs("output", stdout);
+            fflush(stdout);
+            fputs("Final diagnostic\n", stderr);
             return 0;
         }
         return 2;
@@ -35,6 +37,31 @@ int main(int argc, char **argv) {
     }
     if (!strcmp(name, "pkill")) return 1;
     if (!strcmp(name, "linux-wallpaperengine")) {
+        const char *render = getenv("AP_TEST_ENGINE_RENDER_FAIL");
+        if (render) {
+            pause_ms(getenv("AP_TEST_ENGINE_RENDER_LATE") ? 2300 : 100);
+            /* Both split writes and overflow of the diagnostic buffer must
+             * retain evidence of a discarded render layer. */
+            if (!strcmp(render, "shader")) {
+                fputs("GLSL vertex unit parsing ", stderr); fflush(stderr); pause_ms(30);
+                fputs("Failed: shader compilation failed\n", stderr);
+            } else if (!strcmp(render, "object")) fputs("Failed to setup object 16: invalid shader\n", stderr);
+            else fputs("[ffmpeg] CUDA: CUDA_ERROR_OUT_OF_MEMORY: out of memory\n", stderr);
+            for (int i = 0; i < 2000; ++i) fputs("Loading particle...\n", stderr);
+            for (;;) pause_ms(1000);
+        }
+        if (getenv("AP_TEST_ENGINE_NOTICES")) fputs("DBus error: no active player\n"
+            "GLFW error 65548: window position unsupported\n"
+            "ScriptEngine [layer.update]: optional property missing\n"
+            "Vertex info: warning C7050: variable may be uninitialized\n", stderr);
+        const char *delay = getenv("AP_TEST_ENGINE_DELAY_FAIL");
+        if (delay) {
+            fputs("Loading scene\n", stderr);
+            pause_ms(strtol(delay, NULL, 10));
+            for (int i = 0; i < 2000; ++i) fputs("shader loading...\n", stderr);
+            fputs("Delayed scene failure\n", stderr);
+            return 9;
+        }
         if (getenv("AP_TEST_ENGINE_FAIL")) { fputs("Scene initialization failed\n", stderr); return 9; }
         for (;;) pause_ms(1000);
     }

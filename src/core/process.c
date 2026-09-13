@@ -61,7 +61,7 @@ int ap_process_available(const char *name) {
 static ap_result process_start(ap_process *p, const char *const argv[], char *out, size_t size, int merge_stderr) {
     if (!p || !argv || !argv[0] || (size && !out)) return AP_INVALID;
     *p = (ap_process){.pid = -1, .output_fd = -1, .exit_code = -1,
-                       .output = out, .output_size = size, .result = AP_BUSY};
+                       .output = out, .output_size = size, .output_tail = merge_stderr, .result = AP_BUSY};
     if (size) out[0] = '\0';
     if (cancelled()) return p->result = AP_CANCELLED;
     int pipefd[2] = {-1, -1};
@@ -128,10 +128,22 @@ static void drain_output(ap_process *p) {
     for (int i = 0; p->output_fd >= 0 && i < 64; ++i) {
         ssize_t n = read(p->output_fd, buf, sizeof(buf));
         if (n > 0) {
+            if (p->output_observer) p->output_observer(buf, (size_t)n, p->output_context);
             size_t copy = (size_t)n;
+            const char *source = buf;
+            p->output_total += copy;
+            if (p->output_tail) {
+                size_t capacity = p->output_size - 1;
+                if (copy > capacity) { source += copy - capacity; copy = capacity; }
+                if (p->output_used + copy > capacity) {
+                    size_t drop = p->output_used + copy - capacity;
+                    memmove(p->output, p->output + drop, p->output_used - drop);
+                    p->output_used -= drop;
+                }
+            }
             size_t left = p->output_size - p->output_used - 1;
             if (copy > left) copy = left;
-            memcpy(p->output + p->output_used, buf, copy);
+            memcpy(p->output + p->output_used, source, copy);
             p->output_used += copy;
             p->output[p->output_used] = '\0';
         } else if (n < 0 && errno == EINTR) {

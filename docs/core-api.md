@@ -110,16 +110,42 @@ appends configured/Hyprland monitor names to an initialized list.
 selects mpvpaper for videos and linux-wallpaperengine for scenes, and uses the
 preview for Wallust. Extra hooks still receive the original project identity.
 Scene executable, assets and output checks run before stopping existing backends.
+`ap_engine_prepare()` creates a temporary runtime overlay only when a scene needs
+a known text-padding, clock-script or Workshop shader compatibility fix. It reads
+bounded loose/PKGV text entries and links the remaining project resources.
+Shader overrides use the renderer's `zcompat/scene/shaders` lookup. Existing linked
+directories are materialized before writing overrides; recursive cleanup never
+follows resource symlinks. Original files remain intact.
+The supervisor calls `ap_engine_cleanup()` after the renderer exits. These
+playback paths are never used as history/favorite identities.
+
+The known Elaina project (`3470764447`) also resolves its five mutually exclusive
+video variants to a single image layer at apply time. Selection uses the local
+clock and validated project hour thresholds (or `display` when `timevarying` is
+false). Inactive images/effects become empty nodes retaining IDs and parents;
+the controller that opens all five video textures is disabled in the copy.
+The overlay manifest records `archpaper_video_variant` for diagnostics. This
+adaptation is gated on the Workshop identity and the expected layers/controller;
+it is not a generic removal of invisible objects or a live day/night scheduler.
 
 The scene engine uses a fresh executable via `__engine-run`, dispatched through
 `archpaper_cli()`. The supervisor owns `engine.lock`, starts the renderer in a
-process group and publishes `engine.ready` after 250 ms without an early exit.
-Startup waits at most about three seconds, and checks cancellation. Stop signals
+process group and publishes `engine.ready` after 1.5 seconds without an early exit.
+Startup waits at most about ten seconds, detects observed supervisor exits and
+checks cancellation. Stop signals
 the kernel lock owner; the supervisor terminates/reaps its renderer before
-releasing the lock. It captures bounded stdout/stderr diagnostics in `engine.log`
-on exit. This detects early startup failures, not rendering correctness or later
-health failures. As with daemon startup, embedders must dispatch the private
-command in their host executable.
+releasing the lock. It retains the latest 8 KiB of stdout/stderr in `engine.log`,
+updated while running and on exit. Startup failures return diagnostics and
+recovery status in `ap_apply_result`. Unexpected later exits trigger
+`ap_wallpaper_recover()`, which acquires the apply lock and checks the saved
+identity and live engine owner before restoring a previous wallpaper. A recovery
+does not add history or run theme hooks, and cannot undo a newer selection.
+Later failures and recovery status are saved in `engine.failed` for the GUI to
+observe. A streaming output observer detects known shader compilation errors,
+discarded objects and GPU allocation errors, even across chunk boundaries or
+after the capture buffer fills. This detects reported rendering failures and
+process exits, not arbitrary visually incorrect rendering. As with
+daemon startup, embedders must dispatch the private command in their executable.
 
 ## Storage and cache
 

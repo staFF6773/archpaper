@@ -195,6 +195,9 @@ int archpaper_cli(int argc, char **argv) {
             printf("Applied with %s: %s\n", backend_to_string(result.backend), path);
             if (result.persistence != AP_OK) fprintf(stderr, "History/config: %s\n", ap_error_string(result.persistence));
             if (result.theme != AP_OK) fprintf(stderr, "Theme/hook: %s\n", ap_error_string(result.theme));
+        } else {
+            if (result.diagnostic[0]) fprintf(stderr, "Wallpaper Engine:\n%s\n", result.diagnostic);
+            if (result.restored) fprintf(stderr, "Previous wallpaper restored.\n");
         }
     }
     free(path);

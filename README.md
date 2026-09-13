@@ -177,6 +177,20 @@ recent history and daemon rotation retain the project's `project.json` identity.
 - **Scene projects:** played with [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine).
   Install `linux-wallpaperengine-git` from the AUR and install the official
   Wallpaper Engine through Steam to provide its assets.
+  Archpaper adapts symmetric text-padding vectors used by newer scenes to the
+  scalar format expected by the Linux renderer. This uses a temporary playback
+  copy (including scenes inside `scene.pkg`), preserving the Workshop originals.
+  The same copy supplies compatibility shaders for Iris Movement+ (`2973943998`)
+  and modified Simple Audio Bars (`3082978660`), and guards the optional name
+  placeholder in the 12-hour clock script (`3006161764`).
+  **Elaina — Day Night Gradient (`3470764447`)** uses a lightweight playback copy:
+  only one of its five embedded 4K videos is loaded. With the project's automatic
+  time setting enabled, Archpaper selects morning/day/dusk/night from the local
+  time and the project's schedule **when applying**. The chosen video continues
+  animating; reapply to select a different time period. If automatic time is off
+  in the project, its manual `display` choice is used, including the gradient clip.
+  The other video layers remain as empty hierarchy nodes, so hidden decoders do
+  not exhaust GPU memory. The original project and its resources are preserved.
 - **Web/application projects and incomplete projects:** displayed as unsupported
   and excluded from random selection. Scene effects depend on the Linux engine's
   compatibility; this is not full compatibility with the Windows application.
@@ -213,9 +227,20 @@ Use `--engine-silent` to mute scenes again; pass an empty string to
 `--engine-output` or `--engine-assets` to restore automatic detection.
 The engine is supervised independently of the GUI. Switching wallpapers or
 running `archpaper clear` stops Archpaper's engine process. Initial startup is
-checked for early exits; successful startup does not guarantee that every effect
-renders correctly. On exit, the first 8 KiB of engine output are written to
+checked for exits over a 1.5-second observation window; successful startup does
+not guarantee that every effect renders correctly. Shader compilation errors,
+discarded render objects and explicit GPU out-of-memory errors are detected even
+when the engine stays alive. On startup/rendering failure or a later unexpected
+exit, Archpaper attempts to restore the previous wallpaper. A newer
+selection takes precedence over recovery. Recovery does not run theme hooks.
+The most recent 8 KiB of engine output are updated while running and on exit in
 `$XDG_RUNTIME_DIR/archpaper/engine.log` (or `/tmp/archpaper-<uid>/engine.log`).
+Startup errors appear in the GUI's expandable error details and in CLI output.
+Later failures are saved in `engine.failed` in the same directory, with recovery
+status; the GUI reports them in its status bar (full output in the tooltip).
+Other scenes that load several embedded 4K videos simultaneously can still exceed GPU
+memory or depend on features missing from the Linux engine. Such failures are
+reported and recovered; shader compatibility fixes do not remove those limits.
 
 Wallust uses the project's preview image. A missing preview is reported as a
 post-apply theme failure; the optional extra hook receives the project manifest path.

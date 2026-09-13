@@ -23,6 +23,57 @@ static ap_result application_lock(int *fd) {
     return AP_OK;
 }
 
+static ap_result restore_wallpaper(const char *failed, config_t *previous) {
+    if (!previous->last_wallpaper[0] || !strcmp(previous->last_wallpaper, failed)) return AP_NOT_FOUND;
+    previous->backend = select_backend_for_path(previous->last_wallpaper, previous->backend);
+    return backend_apply(previous->last_wallpaper, previous);
+}
+
+static void clear_engine_failure(void) {
+    char path[4096];
+    if (ap_runtime_path("engine.failed", path, sizeof(path)) == AP_OK) unlink(path);
+}
+
+static ap_result write_failure(FILE *file, const void *data) {
+    return fputs(data, file) < 0 ? AP_IO : AP_OK;
+}
+
+ap_result ap_wallpaper_recover(const char *failed, const config_t *previous, const char *diagnostic) {
+    if (!failed || !previous || !diagnostic) return AP_INVALID;
+    int lock;
+    ap_result rc = application_lock(&lock);
+    /* The applying client may still be running wallust/hooks (up to 120s).
+     * Wait without holding the engine lock; newer selections win below. */
+    for (int i = 0; rc == AP_BUSY && i < 6500; ++i) {
+        usleep(20000);
+        rc = application_lock(&lock);
+    }
+    if (rc != AP_OK) return rc;
+    config_t current, restore = *previous;
+    rc = config_load(&current);
+    if (rc != AP_OK || strcmp(current.last_wallpaper, failed)) { close(lock); return rc; }
+    int owner;
+    rc = ap_engine_status(&owner);
+    if (rc != AP_OK || owner) { close(lock); return rc; }
+    /* Record first so a restored scene cannot bounce back to the crashed one
+     * if it subsequently fails too. No theme hooks or history entries on undo. */
+    rc = !restore.last_wallpaper[0] || !strcmp(restore.last_wallpaper, failed) ? AP_NOT_FOUND :
+        config_record_wallpaper(restore.last_wallpaper, NULL);
+    if (rc == AP_OK) {
+        rc = restore_wallpaper(failed, &restore);
+        if (rc != AP_OK) config_record_wallpaper(failed, NULL);
+    }
+    char message[12288], path[4096];
+    const char *reason = strstr(diagnostic, "CUDA_ERROR_OUT_OF_MEMORY") || strstr(diagnostic, "GL_OUT_OF_MEMORY")
+        ? "Wallpaper Engine ran out of GPU memory" : "Wallpaper Engine failed during playback";
+    snprintf(message, sizeof(message), "%s (session %ld).\n%s\n%s", reason,
+        (long)getpid(), rc == AP_OK ? "Previous wallpaper restored." : "Could not restore the previous wallpaper.", diagnostic);
+    if (ap_runtime_path("engine.failed", path, sizeof(path)) == AP_OK)
+        ap_write_atomic(path, write_failure, message);
+    close(lock);
+    return rc;
+}
+
 ap_result ap_wallpaper_apply(const char *path, const config_t *options, unsigned flags, ap_apply_result *out) {
     if (!out) return AP_INVALID;
     *out = (ap_apply_result){0};
@@ -51,8 +102,18 @@ ap_result ap_wallpaper_apply(const char *path, const config_t *options, unsigned
     int lock;
     rc = application_lock(&lock);
     if (rc != AP_OK) { free(absolute); return rc; }
+    config_t previous;
+    int have_previous = config_load(&previous) == AP_OK;
     rc = backend_apply(absolute, &effective);
-    if (rc != AP_OK) goto done;
+    if (rc != AP_OK) {
+        if (project.type == AP_ENGINE_SCENE && (rc == AP_PROCESS || rc == AP_TIMEOUT)) {
+            ap_engine_diagnostic(out->diagnostic, sizeof(out->diagnostic));
+            out->recovery = have_previous ? restore_wallpaper(absolute, &previous) : AP_NOT_FOUND;
+            out->restored = out->recovery == AP_OK;
+        }
+        goto done;
+    }
+    clear_engine_failure();
     out->applied = 1;
     /* Preserve the latest folder list, which may have changed while preparing
      * a conversion. Persist the preferred backend, not a one-file fallback. */
@@ -81,7 +142,10 @@ ap_result ap_wallpaper_clear(void) {
     ap_result rc = application_lock(&lock);
     if (rc != AP_OK) return rc;
     rc = clear_wallpaper();
-    if (rc == AP_OK) rc = config_record_wallpaper("", NULL);
+    if (rc == AP_OK) {
+        clear_engine_failure();
+        rc = config_record_wallpaper("", NULL);
+    }
     close(lock);
     return rc;
 }

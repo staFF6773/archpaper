@@ -32,6 +32,7 @@
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QThread>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -79,6 +80,21 @@ MainWindow::MainWindow(QWidget *parent)
     setupUi();
     loadConfig();
     m_loadingConfig = false;
+    auto *engineTimer = new QTimer(this);
+    connect(engineTimer, &QTimer::timeout, this, [this, lastFailure = QByteArray()]() mutable {
+        if (m_applyThread) return;
+        char path[4096];
+        if (ap_runtime_path("engine.failed", path, sizeof(path)) != AP_OK) return;
+        QFile file(QString::fromUtf8(path));
+        if (!file.open(QIODevice::ReadOnly)) { lastFailure.clear(); return; }
+        QByteArray failure = file.read(12288);
+        if (failure.isEmpty() || failure == lastFailure) return;
+        lastFailure = failure;
+        QString message = QString::fromUtf8(failure);
+        updateStatus(message.section('\n', 0, 1).replace('\n', " "));
+        m_statusLabel->setToolTip(message);
+    });
+    engineTimer->start(1000);
 }
 
 MainWindow::~MainWindow() {
@@ -725,7 +741,22 @@ void MainWindow::applySelectedImage(const QString &path) {
         m_backendCombo->setEnabled(true);
         m_modeCombo->setEnabled(true);
         refreshFavoriteButton();
-        if (task->status != AP_OK) { updateStatus(ap_error_string(task->status)); return; }
+        if (task->status != AP_OK) {
+            QString message = ap_error_string(task->status);
+            QString details = QString::fromUtf8(task->result.diagnostic);
+            if (details.startsWith("Scene rendering failed:")) message = "Wallpaper Engine could not render this scene";
+            if (details.contains("CUDA_ERROR_OUT_OF_MEMORY") || details.contains("GL_OUT_OF_MEMORY"))
+                message = "Wallpaper Engine ran out of GPU memory";
+            if (task->result.restored) message += " | Previous wallpaper restored";
+            updateStatus(message);
+            if (task->result.diagnostic[0]) {
+                QMessageBox box(QMessageBox::Warning, "Wallpaper Engine", message, QMessageBox::Ok, this);
+                box.setInformativeText("The engine could not load this scene. Open Details for its error output.");
+                box.setDetailedText(details);
+                box.exec();
+            }
+            return;
+        }
         loadRecent();
         QString message = QString("Applied: %1").arg(QFileInfo(path).fileName());
         if (task->result.persistence != AP_OK)

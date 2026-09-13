@@ -13,11 +13,15 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ftw.h>
+#include <json-c/json.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expr); exit(1); } } while (0)
@@ -142,6 +146,10 @@ static void test_process(void) {
     const char *flood[] = {helper, "flood", NULL};
     CHECK(ap_process_run(flood, 3000, output, sizeof(output)) == AP_OK);
     CHECK(strlen(output) == sizeof(output) - 1);
+    CHECK(ap_process_start_logged(&process, flood, output, sizeof(output)) == AP_OK);
+    CHECK(ap_process_wait(&process, 3000) == AP_OK && strstr(output, "Final diagnostic"));
+    CHECK(ap_process_start_logged(&process, flood, output, 1) == AP_OK);
+    CHECK(ap_process_wait(&process, 3000) == AP_OK && !output[0]);
     int cancel = 1;
     ap_process_set_cancel_check(cancel_now, &cancel);
     CHECK(ap_process_run(echo, 1000, NULL, 0) == AP_CANCELLED);
@@ -279,6 +287,254 @@ static int remove_entry(const char *path, const struct stat *st, int flag, struc
     return remove(path);
 }
 
+static void put_u32(FILE *f, uint32_t n) {
+    unsigned char bytes[] = {n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255};
+    CHECK(fwrite(bytes, 1, 4, f) == 4);
+}
+
+static void test_engine_compat(const char *scene) {
+    const char *json = "{\"objects\":[{\"text\":\"Clock\",\"padding\":\"32.00000 32.00000\"},"
+        "{\"text\":\"Asymmetric\",\"padding\":\"12 24\"},"
+        "{\"image\":\"model.json\",\"padding\":\"32 32\"},"
+        "{\"text\":\"Invalid\",\"padding\":\"nan nan\"}]}";
+    char path[8192], prepared[4096];
+    snprintf(path, sizeof(path), "%s/scene.pkg", scene);
+    FILE *f = fopen(path, "wb"); CHECK(f);
+    put_u32(f, 8); CHECK(fwrite("PKGV0024", 1, 8, f) == 8);
+    put_u32(f, 1); put_u32(f, 10); CHECK(fwrite("scene.json", 1, 10, f) == 10);
+    put_u32(f, 0); put_u32(f, (uint32_t)strlen(json));
+    CHECK(fputs(json, f) >= 0 && fclose(f) == 0);
+    ap_engine_project project;
+    CHECK(ap_engine_read(scene, &project) == AP_OK);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && strcmp(prepared, scene));
+    snprintf(path, sizeof(path), "%s/project.json", prepared);
+    json_object *manifest = json_object_from_file(path), *file;
+    CHECK(manifest && json_object_object_get_ex(manifest, "file", &file));
+    snprintf(path, sizeof(path), "%s/%s", prepared, json_object_get_string(file));
+    json_object *fixed = json_object_from_file(path), *objects, *padding;
+    CHECK(fixed && json_object_object_get_ex(fixed, "objects", &objects));
+    CHECK(json_object_object_get_ex(json_object_array_get_idx(objects, 0), "padding", &padding));
+    CHECK(json_object_is_type(padding, json_type_int) && json_object_get_int(padding) == 32);
+    for (int i = 1; i < 4; ++i) {
+        CHECK(json_object_object_get_ex(json_object_array_get_idx(objects, i), "padding", &padding));
+        CHECK(json_object_is_type(padding, json_type_string));
+    }
+    json_object_put(fixed); json_object_put(manifest);
+    snprintf(path, sizeof(path), "%s/scene.pkg", prepared);
+    struct stat st; CHECK(lstat(path, &st) == 0 && S_ISLNK(st.st_mode));
+    ap_engine_cleanup(&project, prepared);
+    CHECK(!file_exists(prepared) && file_exists(project.manifest));
+    /* Loose scenes take precedence; unsupported layouts remain untouched. */
+    snprintf(path, sizeof(path), "%s/scene.json", scene);
+    write_file(path, "{\"objects\":[{\"text\":\"Clock\",\"padding\":32}]}");
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && !strcmp(prepared, scene));
+    ap_engine_cleanup(&project, prepared);
+    CHECK(file_exists(path));
+    write_file(path, json);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && strcmp(prepared, scene));
+    ap_engine_cleanup(&project, prepared);
+    char *original = read_file(path); CHECK(!strcmp(original, json)); free(original);
+    CHECK(unlink(path) == 0);
+    /* Truncated package metadata cannot cause an oversized read or allocation. */
+    snprintf(path, sizeof(path), "%s/scene.pkg", scene);
+    CHECK(truncate(path, 25) == 0);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && !strcmp(prepared, scene));
+    write_file(path, "package");
+}
+
+static void test_engine_shader_compat(const char *scene) {
+    const char *names[] = {"scene.json",
+        "shaders/workshop/2973943998/effects/iris_movement__.vert",
+        "shaders/workshop/3082978660/effects/Simple_Audio_Bars.vert",
+        "shaders/workshop/3082978660/effects/Simple_Audio_Bars.frag"};
+    const char *sources[] = {"{\"objects\":[]}",
+        "uniform vec2 g_CursorScaleLimit;\r\n#if FOLLOWCURSOR\r\nvoid main() {\r\n"
+        "vec4 transformedCursorPosition;\r\nvec2 da = transformedCursorPosition * g_CursorScale;\r\n"
+        "#endif\r\n#endif\r\n}\r\n",
+        "#if DEFORMITY\nfloat i_DCorrectingFactor;\n#endif\n#endif\n",
+        "varying vec2 v_TexCoord;\nvoid main() {\nv_TexCoord = v_TexCoord.yx;\n}\n"};
+    char path[8192], prepared[4096];
+    snprintf(path, sizeof(path), "%s/scene.pkg", scene);
+    FILE *f = fopen(path, "wb"); CHECK(f);
+    put_u32(f, 8); CHECK(fwrite("PKGV0023", 1, 8, f) == 8); put_u32(f, 4);
+    uint32_t offset = 0;
+    for (int i = 0; i < 4; ++i) {
+        put_u32(f, (uint32_t)strlen(names[i])); CHECK(fputs(names[i], f) >= 0);
+        put_u32(f, offset); put_u32(f, (uint32_t)strlen(sources[i])); offset += (uint32_t)strlen(sources[i]);
+    }
+    for (int i = 0; i < 4; ++i) CHECK(fputs(sources[i], f) >= 0);
+    CHECK(fclose(f) == 0);
+    /* Copy-on-write must preserve a linked, already existing zcompat tree. */
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders", scene); CHECK(ap_mkdirs(path) == AP_OK);
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/keep.txt", scene); write_file(path, "original");
+    ap_engine_project project;
+    CHECK(ap_engine_read(scene, &project) == AP_OK);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && strcmp(prepared, scene));
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/2973943998/iris_movement__.vert", prepared);
+    char *text = read_file(path);
+    CHECK(strstr(text, "transformedCursorPosition.xy * g_CursorScale"));
+    char *endif = strstr(text, "#endif"); CHECK(endif && !strstr(endif + 6, "#endif")); free(text);
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/3082978660/Simple_Audio_Bars.vert", prepared);
+    text = read_file(path); endif = strstr(text, "#endif"); CHECK(endif && !strstr(endif + 6, "#endif")); free(text);
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/3082978660/Simple_Audio_Bars.frag", prepared);
+    text = read_file(path);
+    CHECK(strstr(text, "varying vec2 v_TexCoord;") && strstr(text, "vec2 ap_TexCoord = v_TexCoord;") &&
+        strstr(text, "ap_TexCoord = ap_TexCoord.yx;")); free(text);
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/keep.txt", prepared);
+    text = read_file(path); CHECK(!strcmp(text, "original")); free(text);
+    ap_engine_cleanup(&project, prepared); CHECK(!file_exists(prepared));
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/keep.txt", scene);
+    text = read_file(path); CHECK(!strcmp(text, "original")); free(text);
+    snprintf(path, sizeof(path), "%s/zcompat/scene/shaders/2973943998", scene); CHECK(!file_exists(path));
+    /* The clock workaround preserves normal text and only guards its optional
+     * placeholder property. It must also work without a padding adjustment. */
+    snprintf(path, sizeof(path), "%s/scene.pkg", scene); write_file(path, "package");
+    snprintf(path, sizeof(path), "%s/scene.json", scene);
+    const char *clock = "{\"objects\":[{\"text\":{\"value\":\"12:34\",\"script\":"
+        "\"export let __workshopId = '3006161764';\\nnewString.replace('$', engine.userProperties.name)\"}}]}";
+    write_file(path, clock);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && strcmp(prepared, scene));
+    char *original = read_file(path); CHECK(!strcmp(original, clock)); free(original);
+    snprintf(path, sizeof(path), "%s/project.json", prepared);
+    json_object *manifest = json_object_from_file(path), *file;
+    CHECK(json_object_object_get_ex(manifest, "file", &file));
+    snprintf(path, sizeof(path), "%s/%s", prepared, json_object_get_string(file));
+    text = read_file(path); CHECK(strstr(text, "(engine.userProperties || {}).name || ''")); free(text);
+    json_object_put(manifest);
+    ap_engine_cleanup(&project, prepared); CHECK(!file_exists(prepared));
+    snprintf(path, sizeof(path), "%s/scene.json", scene); CHECK(unlink(path) == 0);
+}
+
+static void check_elaina_variant(const char *scene, const char *expected) {
+    ap_engine_project project;
+    char prepared[4096], path[8192];
+    CHECK(ap_engine_read(scene, &project) == AP_OK);
+    char *original = read_file(project.manifest);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && strcmp(prepared, scene));
+    snprintf(path, sizeof(path), "%s/project.json", prepared);
+    json_object *manifest = json_object_from_file(path), *value;
+    CHECK(manifest && json_object_object_get_ex(manifest, "archpaper_video_variant", &value));
+    CHECK(!strcmp(json_object_get_string(value), expected));
+    CHECK(json_object_object_get_ex(manifest, "file", &value));
+    snprintf(path, sizeof(path), "%s/%s", prepared, json_object_get_string(value));
+    json_object *fixed = json_object_from_file(path), *objects;
+    CHECK(fixed && json_object_object_get_ex(fixed, "objects", &objects));
+    int videos = 0, placeholders = 0, controller = 0, decoration = 0;
+    for (size_t i = 0; i < json_object_array_length(objects); ++i) {
+        json_object *object = json_object_array_get_idx(objects, i), *name;
+        CHECK(json_object_object_get_ex(object, "name", &name));
+        const char *n = json_object_get_string(name);
+        if (!strcmp(n, "morning") || !strcmp(n, "day") || !strcmp(n, "dusk") || !strcmp(n, "night") || !strcmp(n, "mddn")) {
+            if (json_object_object_get_ex(object, "image", &value)) {
+                ++videos; CHECK(!strcmp(n, expected));
+                CHECK(json_object_object_get_ex(object, "visible", &value) && json_object_get_boolean(value));
+                CHECK(json_object_object_get_ex(object, "effects", &value));
+            } else {
+                ++placeholders;
+                CHECK(!json_object_object_get_ex(object, "effects", &value));
+                CHECK(json_object_object_get_ex(object, "visible", &value) && !json_object_get_boolean(value));
+            }
+        } else if (!strcmp(n, "controller")) {
+            ++controller;
+            CHECK(json_object_object_get_ex(object, "image", &value));
+            CHECK(json_object_object_get_ex(object, "visible", &value) && json_object_is_type(value, json_type_boolean));
+        } else if (!strcmp(n, "decoration")) {
+            ++decoration;
+            CHECK(json_object_object_get_ex(object, "parent", &value) && json_object_get_int(value) == 142);
+            CHECK(json_object_object_get_ex(object, "image", &value));
+        } else if (!strcmp(n, "myLayer") && !strcmp(expected, "mddn")) {
+            CHECK(json_object_object_get_ex(object, "visible", &value) && json_object_get_boolean(value));
+        }
+    }
+    CHECK(videos == 1 && placeholders == 4 && controller == 1 && decoration == 1);
+    json_object_put(fixed); json_object_put(manifest);
+    ap_engine_cleanup(&project, prepared); CHECK(!file_exists(prepared));
+    char *after = read_file(project.manifest); CHECK(!strcmp(original, after)); free(after); free(original);
+}
+
+static void test_engine_elaina(const char *scene) {
+    char manifest_path[8192], scene_path[8192], prepared[4096];
+    snprintf(manifest_path, sizeof(manifest_path), "%s/project.json", scene);
+    snprintf(scene_path, sizeof(scene_path), "%s/scene.json", scene);
+    char *original_manifest = read_file(manifest_path);
+    const char *source = "{\"objects\":["
+        "{\"id\":130,\"name\":\"myLayer\",\"visible\":false},"
+        "{\"id\":193,\"name\":\"group\"},"
+        "{\"id\":147,\"name\":\"morning\",\"image\":\"morning.json\",\"parent\":193,\"effects\":[]},"
+        "{\"id\":144,\"name\":\"day\",\"image\":\"day.json\",\"parent\":193,\"effects\":[]},"
+        "{\"id\":142,\"name\":\"dusk\",\"image\":\"dusk.json\",\"parent\":193,\"effects\":[]},"
+        "{\"id\":138,\"name\":\"night\",\"image\":\"night.json\",\"parent\":193,\"effects\":[]},"
+        "{\"id\":221,\"name\":\"mddn\",\"image\":\"gradient.json\",\"parent\":130,\"effects\":[]},"
+        "{\"id\":6852,\"name\":\"controller\",\"image\":\"post.json\",\"visible\":{\"value\":true,"
+        "\"script\":\"var displayVideo = []; displayVideo.forEach(v => v.getVideoTexture().pause());\"}},"
+        "{\"id\":999,\"name\":\"decoration\",\"image\":\"decoration.json\",\"parent\":142}]}";
+    write_file(scene_path, source);
+    json_object *manifest = json_tokener_parse("{\"workshopid\":\"3470764447\",\"type\":\"scene\",\"file\":\"scene.json\","
+        "\"general\":{\"properties\":{\"timevarying\":{\"value\":true},\"display\":{\"value\":\"1\"},"
+        "\"morningtime\":{\"value\":\"6\"},\"daytime\":{\"value\":9},"
+        "\"dusktime\":{\"value\":\"17\"},\"nighttime\":{\"value\":\"20\"}}}}");
+    CHECK(manifest);
+    write_file(manifest_path, json_object_to_json_string(manifest));
+    char *tz = getenv("TZ") ? strdup(getenv("TZ")) : NULL;
+    const int hours[] = {0, 5, 6, 8, 9, 16, 17, 19, 20, 23};
+    const char *expected[] = {"night", "night", "morning", "morning", "day", "day", "dusk", "dusk", "night", "night"};
+    for (size_t i = 0; i < sizeof(hours) / sizeof(hours[0]); ++i) {
+        time_t now = time(NULL); struct tm utc;
+        CHECK(gmtime_r(&now, &utc));
+        /* Select a timezone with the requested hour and minute 30, so a test
+         * crossing a real UTC hour boundary does not become flaky. */
+        int minutes = utc.tm_hour * 60 + utc.tm_min - (hours[i] * 60 + 30);
+        char zone[32]; snprintf(zone, sizeof(zone), "UTC%c%d:%02d", minutes < 0 ? '-' : '+', abs(minutes) / 60, abs(minutes) % 60);
+        CHECK(setenv("TZ", zone, 1) == 0); tzset();
+        check_elaina_variant(scene, expected[i]);
+    }
+    json_object *general, *properties, *property;
+    CHECK(json_object_object_get_ex(manifest, "general", &general));
+    CHECK(json_object_object_get_ex(general, "properties", &properties));
+    time_t now = time(NULL); struct tm utc;
+    CHECK(gmtime_r(&now, &utc));
+    int minutes = utc.tm_hour * 60 + utc.tm_min - (18 * 60 + 30);
+    char zone[32]; snprintf(zone, sizeof(zone), "UTC%c%d:%02d", minutes < 0 ? '-' : '+', abs(minutes) / 60, abs(minutes) % 60);
+    CHECK(setenv("TZ", zone, 1) == 0); tzset();
+    CHECK(json_object_object_get_ex(properties, "dusktime", &property));
+    json_object_object_add(property, "value", json_object_new_string("19"));
+    CHECK(json_object_object_get_ex(properties, "nighttime", &property));
+    json_object_object_add(property, "value", json_object_new_string("22"));
+    write_file(manifest_path, json_object_to_json_string(manifest));
+    check_elaina_variant(scene, "day");
+    /* Invalid/overlapping schedules fall back to a coherent default schedule. */
+    CHECK(json_object_object_get_ex(properties, "nighttime", &property));
+    json_object_object_add(property, "value", json_object_new_string("2"));
+    write_file(manifest_path, json_object_to_json_string(manifest));
+    check_elaina_variant(scene, "dusk");
+    CHECK(json_object_object_get_ex(properties, "timevarying", &property));
+    json_object_object_add(property, "value", json_object_new_boolean(0));
+    CHECK(json_object_object_get_ex(properties, "display", &property));
+    const char *manual[] = {"morning", "day", "dusk", "night", "mddn"};
+    for (int i = 0; i < 5; ++i) {
+        char choice[2] = {(char)('0' + i), 0};
+        json_object_object_add(property, "value", json_object_new_string(choice));
+        write_file(manifest_path, json_object_to_json_string(manifest));
+        check_elaina_variant(scene, manual[i]);
+    }
+    if (tz) { setenv("TZ", tz, 1); free(tz); } else unsetenv("TZ");
+    tzset();
+    /* Other wallpapers with similar names and future layouts are not rewritten. */
+    json_object_object_add(manifest, "workshopid", json_object_new_string("other"));
+    write_file(manifest_path, json_object_to_json_string(manifest));
+    ap_engine_project project;
+    CHECK(ap_engine_read(scene, &project) == AP_OK);
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && !strcmp(prepared, scene));
+    char *after = read_file(scene_path); CHECK(!strcmp(after, source)); free(after);
+    json_object_object_add(manifest, "workshopid", json_object_new_string("3470764447"));
+    write_file(manifest_path, json_object_to_json_string(manifest));
+    write_file(scene_path, "{\"objects\":[]}");
+    CHECK(ap_engine_prepare(&project, prepared, sizeof(prepared)) == AP_OK && !strcmp(prepared, scene));
+    json_object_put(manifest);
+    CHECK(unlink(scene_path) == 0);
+    write_file(manifest_path, original_manifest); free(original_manifest);
+}
+
 static void test_engine(void) {
     char projects[1024], scene[1024], video[1024], path[4096], manifest[4096], assets[4096];
     snprintf(projects, sizeof(projects), "%s/projects", root);
@@ -297,6 +553,9 @@ static void test_engine(void) {
     CHECK(ap_engine_read(manifest, &project) == AP_OK);
     CHECK(ap_library_matches(manifest, "NIGHT"));
     CHECK(select_backend_for_path(manifest, BACKEND_SWWW) == BACKEND_WALLPAPER_ENGINE);
+    test_engine_compat(scene);
+    test_engine_shader_compat(scene);
+    test_engine_elaina(scene);
     snprintf(path, sizeof(path), "%s/movie 'quoted'.mp4", video); write_file(path, "video");
     snprintf(path, sizeof(path), "%s/project.json", video);
     write_file(path, "{\"type\":\"video\",\"file\":\"movie 'quoted'.mp4\",\"preview\":\"../../outside.png\"}");
@@ -383,7 +642,9 @@ static void test_engine(void) {
     CHECK(symlink(helper, path) == 0);
 
     write_file(log_path, "");
+    setenv("AP_TEST_ENGINE_NOTICES", "1", 1);
     CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_OK && applied.backend == BACKEND_WALLPAPER_ENGINE);
+    unsetenv("AP_TEST_ENGINE_NOTICES");
     CHECK(config_load(&loaded) == AP_OK && !strcmp(loaded.last_wallpaper, manifest));
     CHECK(ap_history_load(AP_RECENT, &list) == AP_OK && !strcmp(list.paths[0], manifest));
     ap_path_list_free(&list);
@@ -393,6 +654,7 @@ static void test_engine(void) {
     free(text);
     char ready[4096]; CHECK(ap_runtime_path("engine.ready", ready, sizeof(ready)) == AP_OK);
     CHECK(file_exists(ready));
+    CHECK(ap_wallpaper_recover(manifest, &cfg, "stale supervisor") == AP_OK && file_exists(ready));
     CHECK(ap_wallpaper_apply(first, &cfg, 0, &applied) == AP_OK && !file_exists(ready));
     CHECK(ap_engine_stop() == AP_OK);
     CHECK(ap_wallpaper_apply(video, &cfg, 0, &applied) == AP_OK && applied.backend == BACKEND_MPVPPAPER);
@@ -402,11 +664,57 @@ static void test_engine(void) {
 
     setenv("AP_TEST_ENGINE_FAIL", "1", 1);
     CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_PROCESS && !applied.applied);
+    CHECK(applied.restored && strstr(applied.diagnostic, "Scene initialization failed"));
     CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
     CHECK(!file_exists(ready));
     CHECK(ap_runtime_path("engine.log", path, sizeof(path)) == AP_OK);
     text = read_file(path); CHECK(strstr(text, "Scene initialization failed")); free(text);
     unsetenv("AP_TEST_ENGINE_FAIL");
+
+    const char *render_failures[] = {"shader", "object", "gpu"};
+    const char *render_messages[] = {"GLSL vertex", "Failed to setup object 16", "CUDA_ERROR_OUT_OF_MEMORY"};
+    for (int i = 0; i < 3; ++i) {
+        setenv("AP_TEST_ENGINE_RENDER_FAIL", render_failures[i], 1);
+        CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_PROCESS && !applied.applied && applied.restored);
+        CHECK(strstr(applied.diagnostic, render_messages[i]) && !file_exists(ready));
+        CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    }
+    unsetenv("AP_TEST_ENGINE_RENDER_FAIL");
+
+    /* A failure after the former 250ms readiness window is not success. */
+    setenv("AP_TEST_ENGINE_DELAY_FAIL", "600", 1);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_PROCESS && !applied.applied && applied.restored);
+    CHECK(strstr(applied.diagnostic, "Delayed scene failure"));
+    CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    /* A later exit restores the prior wallpaper even without a running GUI. */
+    setenv("AP_TEST_ENGINE_DELAY_FAIL", "2300", 1);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_OK);
+    unsetenv("AP_TEST_ENGINE_DELAY_FAIL");
+    char failed[4096]; CHECK(ap_runtime_path("engine.failed", failed, sizeof(failed)) == AP_OK);
+    /* Recovery waits while the client still owns the apply/theme transaction. */
+    CHECK(ap_runtime_path("apply.lock", path, sizeof(path)) == AP_OK);
+    int held = open(path, O_RDWR | O_CLOEXEC); CHECK(held >= 0 && flock(held, LOCK_EX) == 0);
+    usleep(1100000);
+    CHECK(!file_exists(failed));
+    close(held);
+    for (int i = 0; i < 200 && !file_exists(failed); ++i) usleep(20000);
+    CHECK(file_exists(failed) && !file_exists(ready));
+    CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    text = read_file(failed);
+    CHECK(strstr(text, "Previous wallpaper restored") && strstr(text, "Delayed scene failure")); free(text);
+    /* A renderer that stays alive after dropping a layer must also recover. */
+    setenv("AP_TEST_ENGINE_RENDER_FAIL", "object", 1);
+    setenv("AP_TEST_ENGINE_RENDER_LATE", "1", 1);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_OK);
+    unsetenv("AP_TEST_ENGINE_RENDER_FAIL"); unsetenv("AP_TEST_ENGINE_RENDER_LATE");
+    for (int i = 0; i < 200 && !file_exists(failed); ++i) usleep(20000);
+    CHECK(file_exists(failed) && !file_exists(ready));
+    text = read_file(failed); CHECK(strstr(text, "Failed to setup object 16")); free(text);
+    CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    /* A stale supervisor must never undo a newer selection. */
+    CHECK(ap_wallpaper_apply(first, &cfg, 0, &applied) == AP_OK && !file_exists(failed));
+    CHECK(ap_wallpaper_recover(manifest, &loaded, "stale failure") == AP_OK);
+    CHECK(config_load(&loaded) == AP_OK && !strcmp(loaded.last_wallpaper, first));
 
     const char *set[] = {cli, "set", scene, "--engine-output", "DP-1", "--engine-assets", assets,
         "--engine-fps", "24", "--engine-audio", NULL};

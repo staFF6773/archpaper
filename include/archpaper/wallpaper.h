@@ -13,6 +13,10 @@ typedef struct {
     ap_result persistence;
     ap_result theme;
     int wallust_missing;
+    /* Scene startup failure: original error output and best-effort undo. */
+    int restored;
+    ap_result recovery;
+    char diagnostic[8192];
 } ap_apply_result;
 
 enum { AP_APPLY_SAVE_OPTIONS = 1u };
@@ -26,6 +30,9 @@ enum { AP_APPLY_SAVE_OPTIONS = 1u };
  * AP_APPLY_SAVE_OPTIONS also persists explicit CLI option overrides. */
 ap_result ap_wallpaper_apply(const char *path, const config_t *options, unsigned flags, ap_apply_result *out);
 ap_result ap_wallpaper_clear(void);
+/* Supervisor-only recovery after an unexpected scene exit. Checks the saved
+ * identity under the apply lock so a newer wallpaper is never overwritten. */
+ap_result ap_wallpaper_recover(const char *failed, const config_t *previous, const char *diagnostic);
 
 #ifdef __cplusplus
 }

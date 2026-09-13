@@ -20,6 +20,12 @@ typedef struct {
     char *output;
     size_t output_size;
     size_t output_used;
+    size_t output_total;
+    int output_tail;
+    /* Optional borrowed observer for all output bytes, including bytes which
+     * will not fit in the capture buffer. Called synchronously during poll. */
+    void (*output_observer)(const char *data, size_t size, void *context);
+    void *output_context;
     ap_result result;
 } ap_process;
 
@@ -30,7 +36,8 @@ void ap_process_set_cancel_check(int (*check)(void *), void *context);
 int ap_process_cancel_requested(void);
 ap_result ap_process_start(ap_process *process, const char *const argv[],
                            char *output, size_t output_size);
-/* Same lifecycle, but captures stderr together with stdout for diagnostics. */
+/* Same lifecycle, but captures stderr together with stdout and retains the
+ * most recent output when full, so fatal errors survive verbose startup logs. */
 ap_result ap_process_start_logged(ap_process *process, const char *const argv[],
                                   char *output, size_t output_size);
 ap_result ap_process_poll(ap_process *process);
