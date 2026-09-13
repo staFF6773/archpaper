@@ -12,6 +12,8 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QSpinBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -48,6 +50,7 @@ extern "C" {
 #include "archpaper/process.h"
 #include "archpaper/storage.h"
 #include "archpaper/wallpaper.h"
+#include "archpaper/engine.h"
 }
 
 #include <cstdlib>
@@ -188,7 +191,7 @@ void MainWindow::setupUi() {
     tbLayout->addWidget(m_filterEdit, 1);
 
     m_backendCombo = new QComboBox;
-    m_backendCombo->addItems({"swaybg", "hyprpaper", "mpvpaper", "awww"});
+    m_backendCombo->addItems({"swaybg", "hyprpaper", "mpvpaper", "awww", "linux-wallpaperengine"});
     connect(m_backendCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onBackendChanged);
 
@@ -223,6 +226,27 @@ void MainWindow::setupUi() {
     moreButton->setPopupMode(QToolButton::InstantPopup);
     auto *menu = new QMenu(moreButton);
     menu->addAction("Apply random wallpaper", this, &MainWindow::onRandom);
+    menu->addAction("Import Wallpaper Engine from Steam", this, [this]() {
+        ap_path_list found = {};
+        ap_result rc = ap_engine_discover(&found);
+        if (rc != AP_OK) { updateStatus(ap_error_string(rc)); return; }
+        config_t cfg;
+        if (!readUiConfig(&cfg)) { ap_path_list_free(&found); return; }
+        int added = 0;
+        for (size_t i = 0; i < found.count; ++i) {
+            const int before = cfg.folder_count;
+            rc = static_cast<ap_result>(config_add_folder(&cfg, found.paths[i]));
+            if (rc != AP_OK) break;
+            added += cfg.folder_count - before;
+        }
+        if (rc == AP_OK) rc = static_cast<ap_result>(config_save(&cfg));
+        if (rc == AP_OK) {
+            loadFolders();
+            updateStatus(found.count ? QString("Steam: %1 new Wallpaper Engine folders imported").arg(added)
+                                     : "No downloaded Wallpaper Engine Workshop folders found");
+        } else updateStatus(ap_error_string(rc));
+        ap_path_list_free(&found);
+    });
     menu->addSeparator();
     menu->addAction("Clear current wallpaper", this, &MainWindow::onClear);
     moreButton->setMenu(menu);
@@ -259,11 +283,39 @@ void MainWindow::setupUi() {
     playbackLayout->addRow("Backend", m_backendCombo);
     playbackLayout->addRow("Display mode", m_modeCombo);
 
+    auto *engineGroup = new QGroupBox("Wallpaper Engine scenes");
+    m_engineSettings = engineGroup;
+    engineGroup->setObjectName("settingsGroup");
+    auto *engineLayout = new QFormLayout(engineGroup);
+    m_engineOutput = new QLineEdit;
+    m_engineOutput->setPlaceholderText("Automatic: all Hyprland monitors");
+    m_engineOutput->setToolTip("A monitor name such as DP-1 or eDP-1; leave empty for automatic detection");
+    m_engineAssets = new QLineEdit;
+    m_engineAssets->setPlaceholderText("Automatic: official assets from Steam");
+    m_engineFps = new QSpinBox;
+    m_engineFps->setRange(1, 240);
+    m_engineFps->setSuffix(" FPS");
+    m_engineAudio = new QCheckBox("Enable wallpaper audio");
+    engineLayout->addRow("Monitor", m_engineOutput);
+    engineLayout->addRow("Assets directory", m_engineAssets);
+    engineLayout->addRow("Frame limit", m_engineFps);
+    engineLayout->addRow(m_engineAudio);
+    auto *engineHint = new QLabel("Requires linux-wallpaperengine-git and official Wallpaper Engine assets. "
+        "Scene compatibility depends on the engine. Videos use mpvpaper. Center/tile use fill for scenes.");
+    engineHint->setWordWrap(true);
+    engineHint->setObjectName("mutedLabel");
+    engineLayout->addRow(engineHint);
+    connect(m_engineOutput, &QLineEdit::editingFinished, this, &MainWindow::onSettingsChanged);
+    connect(m_engineAssets, &QLineEdit::editingFinished, this, &MainWindow::onSettingsChanged);
+    connect(m_engineFps, &QSpinBox::valueChanged, this, &MainWindow::onSettingsChanged);
+    connect(m_engineAudio, &QCheckBox::toggled, this, &MainWindow::onSettingsChanged);
+
     auto *settingsContent = new QWidget;
     auto *settingsLayout = new QVBoxLayout(settingsContent);
     settingsLayout->setContentsMargins(0, 0, 8, 0);
     settingsLayout->setSpacing(10);
     settingsLayout->addWidget(playbackGroup);
+    settingsLayout->addWidget(engineGroup);
     settingsLayout->addWidget(m_settingsPanel);
     settingsLayout->addStretch();
     auto *settingsScroll = new QScrollArea;
@@ -316,6 +368,7 @@ void MainWindow::loadConfig() {
         case BACKEND_HYPRPAPER: backendIndex = 1; break;
         case BACKEND_MPVPPAPER: backendIndex = 2; break;
         case BACKEND_SWWW: backendIndex = 3; break;
+        case BACKEND_WALLPAPER_ENGINE: backendIndex = 4; break;
         default: backendIndex = 0; break;
     }
     m_backendCombo->setCurrentIndex(backendIndex);
@@ -331,6 +384,10 @@ void MainWindow::loadConfig() {
     m_settingsPanel->setMpvpaperProfile(QString::fromUtf8(cfg.mpvpaper_profile));
     m_settingsPanel->setMpvpaperHwdec(cfg.mpvpaper_hwdec != 0);
     m_settingsPanel->setInterval(cfg.daemon_interval > 0 ? cfg.daemon_interval : 300);
+    m_engineOutput->setText(QString::fromUtf8(cfg.engine_output));
+    m_engineAssets->setText(QString::fromUtf8(cfg.engine_assets));
+    m_engineFps->setValue(cfg.engine_fps);
+    m_engineAudio->setChecked(cfg.engine_audio);
     int daemonPid = 0;
     if (daemon_status(&daemonPid) == AP_OK)
         m_settingsPanel->setDaemonRunning(daemonPid > 0);
@@ -364,6 +421,10 @@ bool MainWindow::readUiConfig(config_t *cfg) {
     cfg->wallust_enabled = m_settingsPanel->wallustEnabled();
     cfg->mpvpaper_hwdec = m_settingsPanel->mpvpaperHwdec();
     cfg->daemon_interval = m_settingsPanel->interval();
+    cfg->engine_fps = m_engineFps->value();
+    cfg->engine_audio = m_engineAudio->isChecked();
+    rc |= ap_copy_string(cfg->engine_output, sizeof(cfg->engine_output), m_engineOutput->text().trimmed().toUtf8().constData());
+    rc |= ap_copy_string(cfg->engine_assets, sizeof(cfg->engine_assets), m_engineAssets->text().toUtf8().constData());
     rc |= ap_copy_string(cfg->mode, sizeof(cfg->mode), m_modeCombo->currentText().toUtf8().constData());
     rc |= ap_copy_string(cfg->wallust_hook, sizeof(cfg->wallust_hook), m_settingsPanel->wallustHook().toUtf8().constData());
     rc |= ap_copy_string(cfg->cache_quality, sizeof(cfg->cache_quality), m_settingsPanel->cacheQuality().toUtf8().constData());
@@ -626,6 +687,7 @@ backend_t MainWindow::selectedBackend() const {
     if (idx == 1) return BACKEND_HYPRPAPER;
     if (idx == 2) return BACKEND_MPVPPAPER;
     if (idx == 3) return BACKEND_SWWW;
+    if (idx == 4) return BACKEND_WALLPAPER_ENGINE;
     return BACKEND_SWAYBG;
 }
 
@@ -651,6 +713,7 @@ void MainWindow::applySelectedImage(const QString &path) {
     });
     m_applyBtn->setEnabled(false);
     m_settingsPanel->setEnabled(false);
+    m_engineSettings->setEnabled(false);
     m_backendCombo->setEnabled(false);
     m_modeCombo->setEnabled(false);
     updateStatus(QString("Applying: %1…").arg(QFileInfo(path).fileName()));
@@ -658,6 +721,7 @@ void MainWindow::applySelectedImage(const QString &path) {
         m_applyThread->deleteLater();
         m_applyThread = nullptr;
         m_settingsPanel->setEnabled(true);
+        m_engineSettings->setEnabled(true);
         m_backendCombo->setEnabled(true);
         m_modeCombo->setEnabled(true);
         refreshFavoriteButton();

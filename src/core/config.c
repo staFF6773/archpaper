@@ -5,6 +5,7 @@
 #include "archpaper/config.h"
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
+#include "archpaper/engine.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -21,6 +22,7 @@ void config_default(config_t *cfg) {
     cfg->daemon_interval = 300;
     strcpy(cfg->cache_quality, "monitor");
     strcpy(cfg->mpvpaper_profile, "quality");
+    cfg->engine_fps = 30;
 }
 
 static int one_of(const char *s, const char *const values[]) {
@@ -33,7 +35,9 @@ static int valid_text(const char *s, size_t size) {
 }
 
 int config_validate(const config_t *cfg) {
-    if (!cfg || cfg->backend < BACKEND_SWAYBG || cfg->backend > BACKEND_SWWW ||
+    if (!cfg || cfg->backend < BACKEND_SWAYBG || cfg->backend > BACKEND_WALLPAPER_ENGINE ||
+        cfg->engine_fps < 1 || cfg->engine_fps > 240 ||
+        (cfg->engine_audio != 0 && cfg->engine_audio != 1) ||
         cfg->folder_count < 0 || cfg->folder_count > MAX_FAVORITE_FOLDERS ||
         cfg->daemon_interval < 10 || cfg->daemon_interval > 86400 ||
         (cfg->wallust_enabled != 0 && cfg->wallust_enabled != 1) ||
@@ -45,7 +49,9 @@ int config_validate(const config_t *cfg) {
         !valid_text(cfg->mpvpaper_profile, sizeof(cfg->mpvpaper_profile)) ||
         !one_of(cfg->mpvpaper_profile, (const char *const[]){"quality", "balanced", "performance", NULL}) ||
         !valid_text(cfg->last_wallpaper, sizeof(cfg->last_wallpaper)) ||
-        !valid_text(cfg->wallust_hook, sizeof(cfg->wallust_hook))) return AP_INVALID;
+        !valid_text(cfg->wallust_hook, sizeof(cfg->wallust_hook)) ||
+        !valid_text(cfg->engine_output, sizeof(cfg->engine_output)) ||
+        !valid_text(cfg->engine_assets, sizeof(cfg->engine_assets))) return AP_INVALID;
     for (int i = 0; i < cfg->folder_count; ++i)
         if (!valid_text(cfg->folders[i], sizeof(cfg->folders[i])) || !cfg->folders[i][0]) return AP_INVALID;
     return AP_OK;
@@ -88,7 +94,7 @@ int config_load(config_t *cfg) {
         if (!value) { rc = AP_INVALID; break; }
         *value++ = '\0';
         if (!strcmp(line, "backend")) {
-            if (!one_of(value, (const char *const[]){"swaybg", "hyprpaper", "awww", "mpvpaper", NULL})) rc = AP_INVALID;
+            if (!one_of(value, (const char *const[]){"swaybg", "hyprpaper", "awww", "mpvpaper", "linux-wallpaperengine", NULL})) rc = AP_INVALID;
             else parsed.backend = backend_from_string(value);
         } else if (!strcmp(line, "mode")) rc = ap_copy_string(parsed.mode, sizeof(parsed.mode), value);
         else if (!strcmp(line, "last")) rc = ap_copy_string(parsed.last_wallpaper, sizeof(parsed.last_wallpaper), value);
@@ -102,6 +108,10 @@ int config_load(config_t *cfg) {
         else if (!strcmp(line, "cache_quality")) rc = ap_copy_string(parsed.cache_quality, sizeof(parsed.cache_quality), value);
         else if (!strcmp(line, "mpvpaper_profile")) rc = ap_copy_string(parsed.mpvpaper_profile, sizeof(parsed.mpvpaper_profile), value);
         else if (!strcmp(line, "mpvpaper_hwdec")) rc = parse_bool(value, &parsed.mpvpaper_hwdec);
+        else if (!strcmp(line, "engine_output")) rc = ap_copy_string(parsed.engine_output, sizeof(parsed.engine_output), value);
+        else if (!strcmp(line, "engine_assets")) rc = ap_copy_string(parsed.engine_assets, sizeof(parsed.engine_assets), value);
+        else if (!strcmp(line, "engine_fps")) rc = ap_engine_parse_fps(value, &parsed.engine_fps);
+        else if (!strcmp(line, "engine_audio")) rc = parse_bool(value, &parsed.engine_audio);
         /* Unknown keys remain forward-compatible. */
         if (rc != AP_OK) break;
     }
@@ -120,6 +130,8 @@ static ap_result write_config(FILE *f, const void *data) {
             backend_to_string(cfg->backend), cfg->mode, cfg->wallust_enabled ? "true" : "false",
             cfg->wallust_hook, cfg->daemon_interval, cfg->cache_quality, cfg->mpvpaper_profile,
             cfg->mpvpaper_hwdec ? "true" : "false", cfg->last_wallpaper);
+    fprintf(f, "engine_output=%s\nengine_assets=%s\nengine_fps=%d\nengine_audio=%s\n",
+            cfg->engine_output, cfg->engine_assets, cfg->engine_fps, cfg->engine_audio ? "true" : "false");
     for (int i = 0; i < cfg->folder_count; ++i) fprintf(f, "folder=%s\n", cfg->folders[i]);
     return ferror(f) ? AP_IO : AP_OK;
 }

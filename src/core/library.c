@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "archpaper/library.h"
 #include "archpaper/utils.h"
+#include "archpaper/engine.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -81,6 +82,18 @@ static ap_result scan(const char *directory, ap_path_list *list, char **random) 
     char *base = realpath(expanded, NULL);
     free(expanded);
     if (!base) return errno == ENOENT ? AP_NOT_FOUND : AP_IO;
+    if (ap_engine_is_project(base)) {
+        ap_engine_project project;
+        ap_result rc = ap_engine_read(base, &project);
+        free(base);
+        if (rc != AP_OK) return rc;
+        if (random) {
+            if (!project.type) return AP_NOT_FOUND;
+            *random = strdup(project.manifest);
+            return *random ? AP_OK : AP_NOMEM;
+        }
+        return ap_path_list_append(list, project.manifest);
+    }
     DIR *dir = opendir(base);
     if (!dir) { free(base); return AP_IO; }
     ap_result result = AP_OK;
@@ -90,19 +103,26 @@ static ap_result scan(const char *directory, ap_path_list *list, char **random) 
         errno = 0;
         entry = readdir(dir);
         if (!entry) { if (errno) result = AP_IO; break; }
-        if (entry->d_name[0] == '.' || (!is_image(entry->d_name) && !is_video(entry->d_name))) continue;
+        if (entry->d_name[0] == '.') continue;
         struct stat st;
-        if (fstatat(dirfd(dir), entry->d_name, &st, 0) != 0 || !S_ISREG(st.st_mode)) continue;
-        if (random) {
-            size_t index;
-            result = ap_random_index(++count, &index);
-            if (result != AP_OK) break;
-            if (index) continue;
-        }
+        if (fstatat(dirfd(dir), entry->d_name, &st, 0) != 0) continue;
         size_t size = strlen(base) + strlen(entry->d_name) + 2;
         char *path = malloc(size);
         if (!path) { result = AP_NOMEM; break; }
         snprintf(path, size, "%s/%s", base, entry->d_name);
+        if (S_ISDIR(st.st_mode) && ap_engine_is_project(path)) {
+            ap_engine_project project;
+            if (ap_engine_read(path, &project) != AP_OK || (random && !project.type)) { free(path); continue; }
+            free(path);
+            path = strdup(project.manifest);
+            if (!path) { result = AP_NOMEM; break; }
+        } else if (!S_ISREG(st.st_mode) || (!is_image(path) && !is_video(path))) { free(path); continue; }
+        if (random) {
+            size_t index;
+            result = ap_random_index(++count, &index);
+            if (result != AP_OK) { free(path); break; }
+            if (index) { free(path); continue; }
+        }
         if (random) { free(*random); *random = path; }
         else { result = ap_path_list_append(list, path); free(path); }
         if (result != AP_OK) break;
@@ -134,6 +154,10 @@ ap_result ap_library_random(const char *directory, char **out) {
 int ap_library_matches(const char *path, const char *text) {
     if (!path) return 0;
     if (!text || !*text) return 1;
+    if (ap_engine_is_project(path)) {
+        ap_engine_project project;
+        if (ap_engine_read(path, &project) == AP_OK && strcasestr(project.title, text)) return 1;
+    }
     const char *name = strrchr(path, '/');
     return strcasestr(name ? name + 1 : path, text) != NULL;
 }

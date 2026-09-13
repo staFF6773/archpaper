@@ -34,6 +34,14 @@ int main(int argc, char **argv) {
         fclose(f);
     }
     if (!strcmp(name, "pkill")) return 1;
+    if (!strcmp(name, "linux-wallpaperengine")) {
+        if (getenv("AP_TEST_ENGINE_FAIL")) { fputs("Scene initialization failed\n", stderr); return 9; }
+        for (;;) pause_ms(1000);
+    }
+    if (!strcmp(name, "hyprctl")) {
+        if (getenv("AP_TEST_MONITORS_FAIL")) return 1;
+        puts("[{\"name\":\"DP-1\"},{\"name\":\"HDMI-A-1\"}]");
+    }
     if (!strcmp(name, "awww")) {
         if (argc > 1 && !strcmp(argv[1], "query")) { puts("test-output: 2560x1440"); return 0; }
         if (argc > 1 && !strcmp(argv[1], "img")) {

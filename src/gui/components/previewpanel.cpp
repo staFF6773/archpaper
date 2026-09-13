@@ -26,6 +26,7 @@
 #include <QVBoxLayout>
 #include "archpaper/cache.h"
 #include "archpaper/process.h"
+#include "archpaper/engine.h"
 extern "C" {
 #include "archpaper/utils.h"
 }
@@ -130,6 +131,19 @@ void PreviewPanel::setWallpaper(const QString &path) {
 
     QFileInfo info(path);
     QString badge = mediaBadgeText(path);
+    if (ap_engine_is_project(path.toUtf8().constData())) {
+        ap_engine_project project;
+        if (ap_engine_read(path.toUtf8().constData(), &project) == AP_OK) {
+            if (project.preview[0]) showImage(QString::fromUtf8(project.preview));
+            else { m_imageLabel->setPixmap(QPixmap()); m_imageLabel->setText("Wallpaper Engine\nNo preview available"); }
+            m_infoLabel->setText(QString("<b>%1</b><br>Wallpaper Engine · %2<br>%3")
+                .arg(QString::fromUtf8(project.title).toHtmlEscaped())
+                .arg(QString::fromUtf8(project.type_name).toHtmlEscaped())
+                .arg(project.type == AP_ENGINE_VIDEO ? "Video · mpvpaper" : project.type == AP_ENGINE_SCENE
+                     ? "Scene · linux-wallpaperengine" : "Unsupported or incomplete project"));
+            return;
+        }
+    }
 
     if (isVideo(path)) {
         setVideoFallback();

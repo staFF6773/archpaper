@@ -67,12 +67,15 @@ int daemon_start(const char *dir, const config_t *cfg) {
     ssize_t n = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
     if (n < 0 || n >= (ssize_t)sizeof(executable) - 1) return AP_IO;
     executable[n] = '\0';
-    char interval[32], wallust[2], hwdec[2];
+    char interval[32], wallust[2], hwdec[2], fps[16], audio[2];
     snprintf(interval, sizeof(interval), "%d", cfg->daemon_interval);
     snprintf(wallust, sizeof(wallust), "%d", cfg->wallust_enabled);
     snprintf(hwdec, sizeof(hwdec), "%d", cfg->mpvpaper_hwdec);
+    snprintf(fps, sizeof(fps), "%d", cfg->engine_fps);
+    snprintf(audio, sizeof(audio), "%d", cfg->engine_audio);
     const char *args[] = {executable, "__daemon-run", dir, interval, backend_to_string(cfg->backend),
-        cfg->mode, wallust, cfg->wallust_hook, cfg->cache_quality, cfg->mpvpaper_profile, hwdec, NULL};
+        cfg->mode, wallust, cfg->wallust_hook, cfg->cache_quality, cfg->mpvpaper_profile, hwdec,
+        cfg->engine_output, cfg->engine_assets, fps, audio, NULL};
     rc = ap_process_detach(args);
     if (rc != AP_OK) return rc;
     for (int i = 0; i < 100; ++i) {

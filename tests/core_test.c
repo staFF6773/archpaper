@@ -8,6 +8,7 @@
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
 #include "archpaper/wallpaper.h"
+#include "archpaper/engine.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -56,7 +57,7 @@ static void setup(void) {
         CHECK(mkdir(path, 0700) == 0);
         CHECK(setenv(vars[i], path, 1) == 0);
     }
-    const char *commands[] = {"awww", "awww-daemon", "swaybg", "hyprpaper", "mpvpaper", "pkill", "wallust", "ffprobe", "ffmpeg", "ffmpegthumbnailer", NULL};
+    const char *commands[] = {"awww", "awww-daemon", "swaybg", "hyprpaper", "mpvpaper", "pkill", "wallust", "ffprobe", "ffmpeg", "ffmpegthumbnailer", "linux-wallpaperengine", "hyprctl", NULL};
     for (size_t i = 0; commands[i]; ++i) {
         snprintf(path, sizeof(path), "%s/bin/%s", root, commands[i]);
         CHECK(symlink(helper, path) == 0);
@@ -278,7 +279,152 @@ static int remove_entry(const char *path, const struct stat *st, int flag, struc
     return remove(path);
 }
 
+static void test_engine(void) {
+    char projects[1024], scene[1024], video[1024], path[4096], manifest[4096], assets[4096];
+    snprintf(projects, sizeof(projects), "%s/projects", root);
+    snprintf(scene, sizeof(scene), "%s/projects/scene 'quoted' $dollar;", root);
+    snprintf(video, sizeof(video), "%s/projects/video", root);
+    CHECK(ap_mkdirs(scene) == AP_OK && ap_mkdirs(video) == AP_OK);
+    snprintf(manifest, sizeof(manifest), "%s/project.json", scene);
+    write_file(manifest, "{\"title\":\"Night \\u2605\",\"type\":\"scene\",\"file\":\"scene.json\","
+                         "\"preview\":\"preview.png\",\"general\":{\"title\":\"Wrong nested title\"}}");
+    snprintf(path, sizeof(path), "%s/scene.pkg", scene); write_file(path, "package");
+    snprintf(path, sizeof(path), "%s/preview.png", scene); write_file(path, "preview");
+    ap_engine_project project;
+    CHECK(ap_engine_read(scene, &project) == AP_OK && project.type == AP_ENGINE_SCENE);
+    CHECK(!strcmp(project.title, "Night ★") && !strcmp(project.manifest, manifest));
+    CHECK(!strcmp(project.preview, path) && strstr(project.file, "scene.pkg"));
+    CHECK(ap_engine_read(manifest, &project) == AP_OK);
+    CHECK(ap_library_matches(manifest, "NIGHT"));
+    CHECK(select_backend_for_path(manifest, BACKEND_SWWW) == BACKEND_WALLPAPER_ENGINE);
+    snprintf(path, sizeof(path), "%s/movie 'quoted'.mp4", video); write_file(path, "video");
+    snprintf(path, sizeof(path), "%s/project.json", video);
+    write_file(path, "{\"type\":\"video\",\"file\":\"movie 'quoted'.mp4\",\"preview\":\"../../outside.png\"}");
+    snprintf(path, sizeof(path), "%s/outside.png", root); write_file(path, "outside");
+    CHECK(ap_engine_read(video, &project) == AP_OK && project.type == AP_ENGINE_VIDEO && !project.preview[0]);
+    CHECK(select_backend_for_path(video, BACKEND_HYPRPAPER) == BACKEND_MPVPPAPER);
+    char invalid[1024];
+    snprintf(invalid, sizeof(invalid), "%s/projects/broken", root); CHECK(ap_mkdirs(invalid) == AP_OK);
+    snprintf(path, sizeof(path), "%s/project.json", invalid); write_file(path, "{broken");
+    CHECK(ap_engine_read(invalid, &project) == AP_INVALID);
+    /* Required embedded NULs are rejected. */
+    write_file(path, "{\"type\":\"video\\u0000scene\",\"file\":\"x.mp4\"}");
+    CHECK(ap_engine_read(invalid, &project) == AP_INVALID);
+    write_file(path, "{\"type\":\"scene\",\"file\":\"scene.json\"} trailing");
+    CHECK(ap_engine_read(invalid, &project) == AP_INVALID);
+    write_file(path, "{\"type\":\"web\",\"file\":\"index.html\",\"title\":\"Web\"}");
+    CHECK(ap_engine_read(invalid, &project) == AP_OK && !project.type);
+    ap_path_list list = {0};
+    CHECK(ap_library_scan(projects, &list) == AP_OK && list.count == 3);
+    ap_path_list_free(&list);
+    CHECK(ap_library_scan(scene, &list) == AP_OK && list.count == 1 && !strcmp(list.paths[0], manifest));
+    ap_path_list_free(&list);
+    for (int i = 0; i < 20; ++i) {
+        char *random = NULL;
+        CHECK(ap_library_random(projects, &random) == AP_OK);
+        CHECK(!strstr(random, "/broken/") && strstr(random, "project.json"));
+        free(random);
+    }
+    CHECK(ap_favorite_toggle(scene, NULL) == AP_OK);
+    CHECK(ap_history_load(AP_FAVORITES, &list) == AP_OK && ap_path_list_contains(&list, manifest));
+    ap_path_list_free(&list);
+    CHECK(ap_favorite_toggle(manifest, NULL) == AP_OK);
+
+    /* Native, external and Flatpak libraries; aliases must not duplicate results. */
+    char steam[1024], external[1024], workshop[4096], vdf[16384];
+    snprintf(steam, sizeof(steam), "%s/.local/share/Steam/steamapps", root);
+    CHECK(ap_mkdirs(steam) == AP_OK);
+    snprintf(external, sizeof(external), "%s/Steam Library", root);
+    snprintf(workshop, sizeof(workshop), "%s/steamapps/workshop/content/431960", external);
+    CHECK(ap_mkdirs(workshop) == AP_OK);
+    snprintf(assets, sizeof(assets), "%s/steamapps/common/wallpaper_engine/assets", external);
+    CHECK(ap_mkdirs(assets) == AP_OK);
+    snprintf(vdf, sizeof(vdf), "\"libraryfolders\" { // comment\n\"1\" {\"path\" \"%s\" \"apps\" {\"431960\" \"123\"}} \"2\" \"%s\"}", external, external);
+    snprintf(path, sizeof(path), "%s/libraryfolders.vdf", steam); write_file(path, vdf);
+    snprintf(path, sizeof(path), "%s/.steam", root); CHECK(ap_mkdirs(path) == AP_OK);
+    snprintf(path, sizeof(path), "%s/.steam/steam", root);
+    CHECK(symlink("../.local/share/Steam", path) == 0);
+    snprintf(path, sizeof(path), "%s/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/workshop/content/431960", root);
+    CHECK(ap_mkdirs(path) == AP_OK);
+    CHECK(ap_engine_discover(&list) == AP_OK && list.count == 2 && ap_path_list_contains(&list, workshop));
+    ap_path_list_free(&list);
+    const char *import[] = {cli, "steam", "--import", NULL};
+    CHECK(ap_process_run(import, 2000, NULL, 0) == AP_OK);
+    config_t cfg, loaded;
+    CHECK(config_load(&cfg) == AP_OK && cfg.folder_count == 3);
+    CHECK(ap_engine_assets(&cfg, path, sizeof(path)) == AP_OK && !strcmp(path, assets));
+    cfg.engine_fps = 45;
+    cfg.engine_audio = 1;
+    strcpy(cfg.engine_output, "DP-1");
+    strcpy(cfg.engine_assets, assets);
+    CHECK(config_save(&cfg) == AP_OK && config_load(&loaded) == AP_OK);
+    CHECK(loaded.engine_fps == 45 && loaded.engine_audio && !strcmp(loaded.engine_assets, assets) && !strcmp(loaded.engine_output, "DP-1"));
+    cfg.engine_fps = 0;
+    CHECK(config_validate(&cfg) == AP_INVALID);
+    CHECK(ap_engine_parse_fps("60junk", &cfg.engine_fps) == AP_INVALID);
+    CHECK(ap_engine_parse_fps("241", &cfg.engine_fps) == AP_INVALID);
+    cfg.engine_fps = 45; cfg.engine_output[0] = 0; cfg.engine_audio = 0; cfg.wallust_enabled = 0;
+    strcpy(cfg.cache_quality, "original");
+    CHECK(ap_engine_outputs(&cfg, &list) == AP_OK && list.count == 2);
+    ap_path_list_free(&list);
+
+    ap_apply_result applied;
+    CHECK(ap_wallpaper_apply(invalid, &cfg, 0, &applied) == AP_UNSUPPORTED && !applied.applied);
+    strcpy(cfg.engine_assets, "/nonexistent-assets");
+    write_file(log_path, "");
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_ASSETS_MISSING);
+    char *text = read_file(log_path); CHECK(!*text); free(text);
+    strcpy(cfg.engine_assets, assets);
+    setenv("AP_TEST_MONITORS_FAIL", "1", 1);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_OUTPUT_MISSING);
+    unsetenv("AP_TEST_MONITORS_FAIL");
+    snprintf(path, sizeof(path), "%s/bin/linux-wallpaperengine", root); CHECK(unlink(path) == 0);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_ENGINE_MISSING);
+    CHECK(symlink(helper, path) == 0);
+
+    write_file(log_path, "");
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_OK && applied.backend == BACKEND_WALLPAPER_ENGINE);
+    CHECK(config_load(&loaded) == AP_OK && !strcmp(loaded.last_wallpaper, manifest));
+    CHECK(ap_history_load(AP_RECENT, &list) == AP_OK && !strcmp(list.paths[0], manifest));
+    ap_path_list_free(&list);
+    text = read_file(log_path);
+    CHECK(strstr(text, "linux-wallpaperengine [--assets-dir]") && strstr(text, "[--fps] [45] [--silent]"));
+    CHECK(strstr(text, "[--screen-root] [DP-1] [--bg]") && strstr(text, "[--screen-root] [HDMI-A-1] [--bg]") && strstr(text, scene));
+    free(text);
+    char ready[4096]; CHECK(ap_runtime_path("engine.ready", ready, sizeof(ready)) == AP_OK);
+    CHECK(file_exists(ready));
+    CHECK(ap_wallpaper_apply(first, &cfg, 0, &applied) == AP_OK && !file_exists(ready));
+    CHECK(ap_engine_stop() == AP_OK);
+    CHECK(ap_wallpaper_apply(video, &cfg, 0, &applied) == AP_OK && applied.backend == BACKEND_MPVPPAPER);
+    CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    usleep(50000);
+    text = read_file(log_path); CHECK(strstr(text, "movie 'quoted'.mp4]")); free(text);
+
+    setenv("AP_TEST_ENGINE_FAIL", "1", 1);
+    CHECK(ap_wallpaper_apply(scene, &cfg, 0, &applied) == AP_PROCESS && !applied.applied);
+    CHECK(config_load(&loaded) == AP_OK && strstr(loaded.last_wallpaper, "/video/project.json"));
+    CHECK(!file_exists(ready));
+    CHECK(ap_runtime_path("engine.log", path, sizeof(path)) == AP_OK);
+    text = read_file(path); CHECK(strstr(text, "Scene initialization failed")); free(text);
+    unsetenv("AP_TEST_ENGINE_FAIL");
+
+    const char *set[] = {cli, "set", scene, "--engine-output", "DP-1", "--engine-assets", assets,
+        "--engine-fps", "24", "--engine-audio", NULL};
+    CHECK(ap_process_run(set, 5000, NULL, 0) == AP_OK);
+    CHECK(config_load(&loaded) == AP_OK && loaded.engine_fps == 24 && loaded.engine_audio);
+    CHECK(ap_wallpaper_clear() == AP_OK && !file_exists(ready));
+    const char *daemon[] = {cli, "daemon", scene, "--interval", "10", "--engine-fps", "18", NULL};
+    CHECK(ap_process_run(daemon, 5000, NULL, 0) == AP_OK);
+    for (int i = 0; i < 100 && !file_exists(ready); ++i) usleep(20000);
+    CHECK(file_exists(ready));
+    CHECK(daemon_stop() == AP_OK);
+    CHECK(ap_wallpaper_clear() == AP_OK);
+    text = read_file(log_path); CHECK(strstr(text, "[--fps] [18]")); free(text);
+    puts("PASS Wallpaper Engine metadata, Steam discovery, preflight, argv, history and supervised lifecycle");
+}
+
 int main(int argc, char **argv) {
+    if (argc > 2 && !strcmp(argv[1], "__engine-run")) return ap_engine_run((const char *const *)(argv + 2));
     CHECK(argc == 3);
     helper = argv[1]; cli = argv[2];
     setup();
@@ -287,6 +433,7 @@ int main(int argc, char **argv) {
     test_library_history();
     test_apply_cache();
     test_cli_daemon();
+    test_engine();
     CHECK(nftw(root, remove_entry, 32, FTW_DEPTH | FTW_PHYS) == 0);
     puts("All core tests passed without Qt or real wallpaper backends.");
     return 0;

@@ -9,6 +9,7 @@
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
 #include "archpaper/wallpaper.h"
+#include "archpaper/engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,10 +17,11 @@
 
 static void usage(const char *name) {
     printf("Usage: %s <command> [options]\n\n"
-           "  set <media>              Apply an image, animation or video\n"
+           "  set <media|project>      Apply media, a project folder or project.json\n"
            "  random <directory>       Apply a random wallpaper\n"
            "  clear                    Clear the wallpaper\n"
-           "  list <directory>         List supported regular files\n"
+           "  list <directory>         List media and Wallpaper Engine projects\n"
+           "  steam [--import]         Discover Workshop folders; optionally save them\n"
            "  favorites                List favorite wallpapers\n"
            "  favorite <media>         Toggle a favorite\n"
            "  recent                   List recent wallpapers\n"
@@ -27,12 +29,16 @@ static void usage(const char *name) {
            "  daemon stop|status       Stop or inspect automatic changes\n"
            "  status | backend         Show saved settings/backend\n\n"
            "Options for set/random/daemon:\n"
-           "  --backend swaybg|hyprpaper|awww|mpvpaper\n"
+           "  --backend swaybg|hyprpaper|awww|mpvpaper|linux-wallpaperengine\n"
            "  --mode fill|fit|stretch|center|tile\n"
            "  --wallust | --wallust-hook <script>\n"
            "  --cache-quality original|monitor|low\n"
            "  --mpvpaper-profile quality|balanced|performance\n"
            "  --hwdec                  Enable mpvpaper hardware decoding\n"
+           "  --engine-output <name>   Scene monitor (empty: all Hyprland monitors)\n"
+           "  --engine-assets <path>   Official assets directory (empty: detect Steam)\n"
+           "  --engine-fps <1..240>    Scene frame limit (default: 30)\n"
+           "  --engine-audio | --engine-silent  Scene audio (default: silent)\n"
            "  --interval <10..86400>    Daemon interval in seconds\n", name);
 }
 
@@ -42,13 +48,13 @@ static int report(int rc) {
 }
 
 static int parse_backend(const char *value, backend_t *out) {
-    if (strcmp(value, "swaybg") && strcmp(value, "hyprpaper") && strcmp(value, "awww") && strcmp(value, "mpvpaper")) return AP_INVALID;
+    if (strcmp(value, "swaybg") && strcmp(value, "hyprpaper") && strcmp(value, "awww") && strcmp(value, "mpvpaper") && strcmp(value, "linux-wallpaperengine")) return AP_INVALID;
     *out = backend_from_string(value);
     return AP_OK;
 }
 
 static int internal_daemon(int argc, char **argv) {
-    if (argc != 11) return AP_INVALID;
+    if (argc != 15) return AP_INVALID;
     config_t cfg;
     config_default(&cfg);
     if (config_parse_interval(argv[3], &cfg.daemon_interval) != AP_OK || parse_backend(argv[4], &cfg.backend) != AP_OK ||
@@ -60,6 +66,11 @@ static int internal_daemon(int argc, char **argv) {
         (strcmp(argv[10], "0") && strcmp(argv[10], "1"))) return AP_INVALID;
     cfg.wallust_enabled = argv[6][0] == '1';
     cfg.mpvpaper_hwdec = argv[10][0] == '1';
+    if (ap_copy_string(cfg.engine_output, sizeof(cfg.engine_output), argv[11]) != AP_OK ||
+        ap_copy_string(cfg.engine_assets, sizeof(cfg.engine_assets), argv[12]) != AP_OK ||
+        ap_engine_parse_fps(argv[13], &cfg.engine_fps) != AP_OK ||
+        (strcmp(argv[14], "0") && strcmp(argv[14], "1"))) return AP_INVALID;
+    cfg.engine_audio = argv[14][0] == '1';
     return daemon_run(argv[2], &cfg);
 }
 
@@ -69,6 +80,8 @@ static int options(int argc, char **argv, config_t *cfg, const char **path) {
         const char *arg = argv[i];
         if (!strcmp(arg, "--wallust")) { cfg->wallust_enabled = 1; continue; }
         if (!strcmp(arg, "--hwdec")) { cfg->mpvpaper_hwdec = 1; continue; }
+        if (!strcmp(arg, "--engine-audio")) { cfg->engine_audio = 1; continue; }
+        if (!strcmp(arg, "--engine-silent")) { cfg->engine_audio = 0; continue; }
         if (!strcmp(arg, "--")) {
             if (*path || i + 2 != argc) return AP_INVALID;
             *path = argv[++i]; break;
@@ -85,6 +98,9 @@ static int options(int argc, char **argv, config_t *cfg, const char **path) {
         else if (!strcmp(arg, "--cache-quality")) rc = ap_copy_string(cfg->cache_quality, sizeof(cfg->cache_quality), value);
         else if (!strcmp(arg, "--mpvpaper-profile")) rc = ap_copy_string(cfg->mpvpaper_profile, sizeof(cfg->mpvpaper_profile), value);
         else if (!strcmp(arg, "--interval")) rc = config_parse_interval(value, &cfg->daemon_interval);
+        else if (!strcmp(arg, "--engine-output")) rc = ap_copy_string(cfg->engine_output, sizeof(cfg->engine_output), value);
+        else if (!strcmp(arg, "--engine-assets")) rc = ap_copy_string(cfg->engine_assets, sizeof(cfg->engine_assets), value);
+        else if (!strcmp(arg, "--engine-fps")) rc = ap_engine_parse_fps(value, &cfg->engine_fps);
         else if (!strcmp(arg, "--wallust-hook")) {
             char *expanded = expand_path(value);
             rc = expanded ? ap_copy_string(cfg->wallust_hook, sizeof(cfg->wallust_hook), expanded) : AP_NOMEM;
@@ -98,8 +114,26 @@ static int options(int argc, char **argv, config_t *cfg, const char **path) {
 int archpaper_cli(int argc, char **argv) {
     if (argc < 2) { usage(argv[0]); return AP_INVALID; }
     const char *command = argv[1];
+    if (!strcmp(command, "__engine-run")) {
+        if (argc < 3 || strcmp(argv[2], "linux-wallpaperengine")) return AP_INVALID;
+        return ap_engine_run((const char *const *)(argv + 2));
+    }
     if (!strcmp(command, "__daemon-run")) return internal_daemon(argc, argv);
     if (!strcmp(command, "--help") || !strcmp(command, "-h")) { usage(argv[0]); return AP_OK; }
+    if (!strcmp(command, "steam") && (argc == 2 || (argc == 3 && !strcmp(argv[2], "--import")))) {
+        ap_path_list folders = {0};
+        int rc = ap_engine_discover(&folders);
+        config_t cfg;
+        if (rc == AP_OK && argc == 3) rc = config_load(&cfg);
+        for (size_t i = 0; i < folders.count && rc == AP_OK; ++i) {
+            puts(folders.paths[i]);
+            if (argc == 3) rc = config_add_folder(&cfg, folders.paths[i]);
+        }
+        if (rc == AP_OK && argc == 3) rc = config_save(&cfg);
+        if (rc == AP_OK && !folders.count) puts("No downloaded Wallpaper Engine Workshop folders found.");
+        ap_path_list_free(&folders);
+        return report(rc);
+    }
     if (!strcmp(command, "daemon") && argc == 3 && !strcmp(argv[2], "stop")) return report(daemon_stop());
     if (!strcmp(command, "daemon") && argc == 3 && !strcmp(argv[2], "status")) {
         int pid;

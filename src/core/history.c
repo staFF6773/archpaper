@@ -2,6 +2,7 @@
 #include "archpaper/history.h"
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
+#include "archpaper/engine.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -77,7 +78,7 @@ static ap_result update_history(ap_history_kind kind, const char *path, int *fav
     int present = ap_path_list_contains(&list, path);
     if (kind == AP_FAVORITES && !present) {
         struct stat st;
-        if ((!is_image(path) && !is_video(path)) || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        if ((!is_image(path) && !is_video(path) && !ap_engine_is_project(path)) || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
             rc = AP_NOT_FOUND;
             goto done;
         }
@@ -102,6 +103,12 @@ done:
 }
 
 ap_result ap_favorite_toggle(const char *path, int *is_favorite) {
+    if (ap_engine_is_project(path)) {
+        ap_engine_project project;
+        ap_result rc = ap_engine_read(path, &project);
+        if (rc != AP_OK) return rc;
+        return update_history(AP_FAVORITES, project.manifest, is_favorite);
+    }
     return update_history(AP_FAVORITES, path, is_favorite);
 }
 

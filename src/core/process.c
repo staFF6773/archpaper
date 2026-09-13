@@ -58,7 +58,7 @@ int ap_process_available(const char *name) {
     return found;
 }
 
-ap_result ap_process_start(ap_process *p, const char *const argv[], char *out, size_t size) {
+static ap_result process_start(ap_process *p, const char *const argv[], char *out, size_t size, int merge_stderr) {
     if (!p || !argv || !argv[0] || (size && !out)) return AP_INVALID;
     *p = (ap_process){.pid = -1, .output_fd = -1, .exit_code = -1,
                        .output = out, .output_size = size, .result = AP_BUSY};
@@ -78,7 +78,8 @@ ap_result ap_process_start(ap_process *p, const char *const argv[], char *out, s
         return p->result = AP_NOMEM;
     }
     int err = posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-    if (!err) err = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    if (!err && size && merge_stderr) err = posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
+    else if (!err) err = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     if (!err && size) err = posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
     if (!err && size) err = posix_spawn_file_actions_addclose(&actions, pipefd[0]);
     if (!err && size && pipefd[1] != STDOUT_FILENO)
@@ -111,6 +112,14 @@ ap_result ap_process_start(ap_process *p, const char *const argv[], char *out, s
         }
     }
     return AP_OK;
+}
+
+ap_result ap_process_start(ap_process *p, const char *const argv[], char *out, size_t size) {
+    return process_start(p, argv, out, size, 0);
+}
+
+ap_result ap_process_start_logged(ap_process *p, const char *const argv[], char *out, size_t size) {
+    return process_start(p, argv, out, size, 1);
 }
 
 static void drain_output(ap_process *p) {
@@ -191,6 +200,8 @@ ap_result ap_process_run(const char *const argv[], int timeout_ms, char *out, si
     ap_result rc = ap_process_start(&p, argv, out, size);
     return rc == AP_OK ? ap_process_wait(&p, timeout_ms) : rc;
 }
+
+int ap_process_cancel_requested(void) { return cancelled(); }
 
 ap_result ap_process_detach(const char *const argv[]) {
     if (!argv || !argv[0]) return AP_INVALID;

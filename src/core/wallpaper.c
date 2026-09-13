@@ -4,6 +4,7 @@
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
 #include "archpaper/wallust.h"
+#include "archpaper/engine.h"
 
 #include <fcntl.h>
 #include <stdlib.h>
@@ -31,12 +32,20 @@ ap_result ap_wallpaper_apply(const char *path, const config_t *options, unsigned
     char *absolute = realpath(expanded, NULL);
     free(expanded);
     if (!absolute) return AP_NOT_FOUND;
+    ap_engine_project project = {0};
+    if (ap_engine_is_project(absolute)) {
+        ap_result parsed = ap_engine_read(absolute, &project);
+        if (parsed != AP_OK || !project.type) { free(absolute); return parsed == AP_OK ? AP_UNSUPPORTED : parsed; }
+        free(absolute);
+        absolute = strdup(project.manifest);
+        if (!absolute) return AP_NOMEM;
+    }
     struct stat st;
     if (stat(absolute, &st) != 0 || !S_ISREG(st.st_mode)) { free(absolute); return AP_NOT_FOUND; }
     config_t effective = *options;
     ap_result rc = ap_copy_string(effective.last_wallpaper, sizeof(effective.last_wallpaper), absolute);
     if (rc != AP_OK || strchr(absolute, '\n') || strchr(absolute, '\r') ||
-        (!is_image(absolute) && !is_video(absolute))) { free(absolute); return AP_INVALID; }
+        (!is_image(absolute) && !is_video(absolute) && !project.type)) { free(absolute); return AP_INVALID; }
     effective.backend = select_backend_for_path(absolute, options->backend);
     out->backend = effective.backend;
     int lock;
@@ -52,7 +61,8 @@ ap_result ap_wallpaper_apply(const char *path, const config_t *options, unsigned
     if (out->persistence == AP_OK) out->persistence = history;
     if (options->wallust_enabled) {
         out->wallust_missing = !wallust_available();
-        out->theme = out->wallust_missing ? AP_NOT_FOUND : wallust_run(absolute);
+        const char *theme_path = project.type ? project.preview : absolute;
+        out->theme = out->wallust_missing || !*theme_path ? AP_NOT_FOUND : wallust_run(theme_path);
         /* A failed wallust run must not trigger a hook against incomplete output.
          * With wallust absent, preserve support for a standalone extra hook. */
         if (out->theme == AP_OK || out->wallust_missing) {

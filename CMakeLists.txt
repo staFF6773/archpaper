@@ -4,6 +4,8 @@ project(archpaper LANGUAGES C)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 option(ARCHPAPER_BUILD_GUI "Build the optional Qt interface" ON)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONC REQUIRED IMPORTED_TARGET json-c)
 
 # Shared C core (static library)
 add_library(archpaper_core STATIC
@@ -19,6 +21,7 @@ add_library(archpaper_core STATIC
     src/core/library.c
     src/core/history.c
     src/core/wallpaper.c
+    src/core/engine.c
 )
 
 target_include_directories(archpaper_core PUBLIC
@@ -27,6 +30,7 @@ target_include_directories(archpaper_core PUBLIC
 )
 
 target_compile_definitions(archpaper_core PRIVATE _DEFAULT_SOURCE)
+target_link_libraries(archpaper_core PUBLIC PkgConfig::JSONC)
 target_compile_options(archpaper_core PRIVATE -Wall -Wextra -Wpedantic)
 
 if(ARCHPAPER_BUILD_GUI)

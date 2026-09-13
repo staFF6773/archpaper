@@ -29,6 +29,8 @@ class QPushButton;
 class QStackedWidget;
 class QToolButton;
 class QThread;
+class QSpinBox;
+class QCheckBox;
 QT_END_NAMESPACE
 
 class WallpaperGrid;
@@ -101,6 +103,11 @@ private:
     QComboBox *m_backendCombo;
     QComboBox *m_modeCombo;
     QLineEdit *m_filterEdit;
+    QLineEdit *m_engineOutput;
+    QLineEdit *m_engineAssets;
+    QSpinBox *m_engineFps;
+    QCheckBox *m_engineAudio;
+    QWidget *m_engineSettings;
     QPushButton *m_applyBtn;
     QPushButton *m_favoriteBtn;
     QPushButton *m_previewToggleBtn;

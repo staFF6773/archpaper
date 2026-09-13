@@ -7,6 +7,7 @@
 #include "archpaper/process.h"
 #include "archpaper/storage.h"
 #include "archpaper/utils.h"
+#include "archpaper/engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,7 @@ const char *backend_to_string(backend_t b) {
     case BACKEND_HYPRPAPER: return "hyprpaper";
     case BACKEND_MPVPPAPER: return "mpvpaper";
     case BACKEND_SWWW: return "awww";
+    case BACKEND_WALLPAPER_ENGINE: return "linux-wallpaperengine";
     }
     return "unknown";
 }
@@ -29,11 +31,12 @@ backend_t backend_from_string(const char *s) {
     if (s && !strcasecmp(s, "hyprpaper")) return BACKEND_HYPRPAPER;
     if (s && !strcasecmp(s, "mpvpaper")) return BACKEND_MPVPPAPER;
     if (s && !strcasecmp(s, "awww")) return BACKEND_SWWW;
+    if (s && !strcasecmp(s, "linux-wallpaperengine")) return BACKEND_WALLPAPER_ENGINE;
     return BACKEND_SWAYBG;
 }
 
 int backend_available(backend_t b) {
-    if (b < BACKEND_SWAYBG || b > BACKEND_SWWW) return 0;
+    if (b < BACKEND_SWAYBG || b > BACKEND_WALLPAPER_ENGINE) return 0;
     return ap_process_available(backend_to_string(b)) &&
            (b != BACKEND_SWWW || ap_process_available("awww-daemon"));
 }
@@ -46,6 +49,11 @@ backend_t detect_backend(void) {
 
 backend_t select_backend_for_path(const char *path, backend_t preferred) {
     if (!path) return preferred;
+    if (ap_engine_is_project(path)) {
+        ap_engine_project project;
+        if (ap_engine_read(path, &project) == AP_OK && project.type == AP_ENGINE_VIDEO) return BACKEND_MPVPPAPER;
+        return BACKEND_WALLPAPER_ENGINE;
+    }
     if (is_video(path)) return BACKEND_MPVPPAPER;
     if (is_animated_image(path)) {
         if (preferred == BACKEND_SWWW || preferred == BACKEND_MPVPPAPER) return preferred;
@@ -53,7 +61,7 @@ backend_t select_backend_for_path(const char *path, backend_t preferred) {
         if (backend_available(BACKEND_MPVPPAPER)) return BACKEND_MPVPPAPER;
         return BACKEND_SWWW;
     }
-    if (preferred != BACKEND_MPVPPAPER && backend_available(preferred)) return preferred;
+    if (preferred != BACKEND_MPVPPAPER && preferred != BACKEND_WALLPAPER_ENGINE && backend_available(preferred)) return preferred;
     if (backend_available(BACKEND_SWWW)) return BACKEND_SWWW;
     if (backend_available(BACKEND_SWAYBG)) return BACKEND_SWAYBG;
     if (backend_available(BACKEND_HYPRPAPER)) return BACKEND_HYPRPAPER;
@@ -67,6 +75,8 @@ const char *cache_quality_from_string(const char *s) {
 }
 
 static int stop_backends(void) {
+    int rc = ap_engine_stop();
+    if (rc != AP_OK) return rc;
     char uid[32];
     snprintf(uid, sizeof(uid), "%lu", (unsigned long)getuid());
     const char *names[] = {"swaybg", "hyprpaper", "mpvpaper"};
@@ -96,6 +106,16 @@ static int ensure_awww(void) {
     return AP_TIMEOUT;
 }
 
+static int stop_awww(void) {
+    if (!ap_process_available("awww")) return AP_OK;
+    const char *query[] = {"awww", "query", NULL};
+    int rc = ap_process_run(query, 1000, NULL, 0);
+    if (rc == AP_CANCELLED) return rc;
+    if (rc != AP_OK) return AP_OK;
+    const char *args[] = {"awww", "kill", NULL};
+    return ap_process_run(args, 2000, NULL, 0);
+}
+
 static ap_result hyprpaper_config(FILE *f, const void *data) {
     fprintf(f, "preload = %s\nwallpaper = ,%s\nsplash = false\n", (const char *)data, (const char *)data);
     return ferror(f) ? AP_IO : AP_OK;
@@ -112,7 +132,47 @@ int set_wallpaper(backend_t b, const char *path, const char *mode, const char *q
 }
 
 int backend_apply(const char *path, const config_t *cfg) {
+    if (config_validate(cfg) != AP_OK) return AP_INVALID;
+    if (ap_engine_is_project(path)) {
+        ap_engine_project project;
+        int rc = ap_engine_read(path, &project);
+        if (rc != AP_OK) return rc;
+        if (!project.type) return AP_UNSUPPORTED;
+        if (project.type == AP_ENGINE_VIDEO) {
+            config_t video = *cfg;
+            video.backend = BACKEND_MPVPPAPER;
+            return backend_apply(project.file, &video);
+        }
+        if (!backend_available(BACKEND_WALLPAPER_ENGINE)) return AP_ENGINE_MISSING;
+        char assets[4096], fps[16];
+        rc = ap_engine_assets(cfg, assets, sizeof(assets));
+        if (rc != AP_OK) return rc;
+        ap_path_list outputs = {0};
+        rc = ap_engine_outputs(cfg, &outputs);
+        if (rc != AP_OK) { ap_path_list_free(&outputs); return rc; }
+        const char **args = calloc(12 + outputs.count * 4, sizeof(*args));
+        if (!args) { ap_path_list_free(&outputs); return AP_NOMEM; }
+        size_t n = 0;
+        snprintf(fps, sizeof(fps), "%d", cfg->engine_fps);
+        args[n++] = "linux-wallpaperengine";
+        args[n++] = "--assets-dir"; args[n++] = assets;
+        args[n++] = "--fps"; args[n++] = fps;
+        if (!cfg->engine_audio) args[n++] = "--silent";
+        args[n++] = "--scaling";
+        args[n++] = !strcmp(cfg->mode, "fit") ? "fit" : !strcmp(cfg->mode, "stretch") ? "stretch" : "fill";
+        for (size_t i = 0; i < outputs.count; ++i) {
+            args[n++] = "--screen-root"; args[n++] = outputs.paths[i];
+            args[n++] = "--bg"; args[n++] = project.directory;
+        }
+        rc = stop_backends();
+        if (rc == AP_OK) rc = stop_awww();
+        if (rc == AP_OK) rc = ap_engine_start(args);
+        free(args);
+        ap_path_list_free(&outputs);
+        return rc;
+    }
     struct stat st;
+    if (cfg->backend == BACKEND_WALLPAPER_ENGINE) return AP_INVALID;
     if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return AP_NOT_FOUND;
     if (strchr(path, '\n') || strchr(path, '\r') || config_validate(cfg) != AP_OK) return AP_INVALID;
     if (!backend_available(cfg->backend)) return AP_NOT_FOUND;
@@ -121,6 +181,7 @@ int backend_apply(const char *path, const config_t *cfg) {
     if (rc != AP_OK) return rc;
     rc = stop_backends();
     if (rc != AP_OK) return rc;
+    if (cfg->backend != BACKEND_SWWW && (rc = stop_awww()) != AP_OK) return rc;
     switch (cfg->backend) {
     case BACKEND_SWAYBG: {
         const char *args[] = {"swaybg", "-i", actual, "-m", cfg->mode, NULL};
@@ -156,6 +217,7 @@ int backend_apply(const char *path, const config_t *cfg) {
         const char *args[] = {"awww", "img", "--transition-type", "none", "--resize", resize, actual, NULL};
         return ap_process_run(args, 30000, NULL, 0);
     }
+    case BACKEND_WALLPAPER_ENGINE: return AP_INVALID;
     }
     return AP_INVALID;
 }

@@ -27,8 +27,12 @@ int ap_process_available(const char *name);
 /* Optional per-thread cancellation check, invoked between process polls.
  * Callback/context are borrowed; clear them before their lifetime ends. */
 void ap_process_set_cancel_check(int (*check)(void *), void *context);
+int ap_process_cancel_requested(void);
 ap_result ap_process_start(ap_process *process, const char *const argv[],
                            char *output, size_t output_size);
+/* Same lifecycle, but captures stderr together with stdout for diagnostics. */
+ap_result ap_process_start_logged(ap_process *process, const char *const argv[],
+                                  char *output, size_t output_size);
 ap_result ap_process_poll(ap_process *process);
 ap_result ap_process_wait(ap_process *process, int timeout_ms);
 ap_result ap_process_cancel(ap_process *process);

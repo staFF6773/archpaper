@@ -33,6 +33,10 @@ typedef struct config {
     char cache_quality[16];
     char mpvpaper_profile[16];
     int mpvpaper_hwdec;
+    char engine_output[128];
+    char engine_assets[4096];
+    int engine_fps;
+    int engine_audio;
 } config_t;
 
 /* Load config from ~/.config/archpaper/config and apply defaults. */

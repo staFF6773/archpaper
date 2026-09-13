@@ -18,6 +18,7 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with a **C17 co
 - Backends **swaybg** (universal Wayland), **hyprpaper** (Hyprland), **awww** (efficient animated/GIF wallpapers) and **mpvpaper** (video wallpapers).
 - Automatic backend detection: prefers **awww** when available because it is the most efficient for animated and static wallpapers on Wayland.
 - Animated wallpaper support: GIF/WebP/MP4/WebM/MKV/MOV with automatic backend selection.
+- **Wallpaper Engine projects**: Steam Workshop folder discovery, local projects, titles and previews; videos through mpvpaper and compatible scenes through linux-wallpaperengine.
 - Lightweight static previews for images, animations and videos; frame extraction is handled by the C core.
 - Background application/conversion in the GUI, with interruptible external processes.
 - Daemon mode for automatic wallpaper changes by interval.
@@ -28,6 +29,7 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with a **C17 co
 
 ```text
 swaybg
+json-c    # Wallpaper Engine metadata and Hyprland monitor discovery
 qt6-base   # only for the optional GUI
 ```
 
@@ -37,6 +39,7 @@ Optional:
 hyprpaper
 awww      # efficient animated/GIF wallpapers on Wayland
 mpvpaper  # video wallpapers on Wayland
+linux-wallpaperengine-git  # AUR: Wallpaper Engine scenes; needs official assets
 wallust
 ffmpeg              # video thumbnails and oversized wallpaper conversions
 ffmpegthumbnailer   # faster video thumbnails
@@ -46,6 +49,7 @@ To build:
 
 ```text
 cmake
+pkgconf
 base-devel
 ```
 
@@ -76,7 +80,8 @@ ctest --test-dir build-cli --output-on-failure
 The C tests use isolated temporary directories and mock executables. They exercise
 configuration validation/atomic writes, process failures/timeouts/cancellation,
 library scanning, favorites, history, cache fallback, wallust/hook ordering and
-daemon lifecycle without Qt or a real Wayland session. Set `BUILD_TESTING=OFF` to
+daemon lifecycle, plus Wallpaper Engine project parsing, Steam discovery and
+supervised engine startup/shutdown, without Qt or a real Wayland session. Set `BUILD_TESTING=OFF` to
 omit test executables.
 
 ## Install
@@ -109,17 +114,19 @@ In the window:
 - Open **More** to apply a random wallpaper or clear the current wallpaper.
 - Press the star button to add/remove wallpapers from Favorites.
 - Open Settings to configure the backend, mode, wallust, video quality and the daemon.
+- Use **More → Import Wallpaper Engine from Steam** to add downloaded Workshop folders.
 
 ### CLI
 
 ```bash
-archpaper set <image|video|gif> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper|awww|mpvpaper] [--wallust] [--wallust-hook <script>]
+archpaper set <image|video|gif|project-directory|project.json> [--mode fill|fit|stretch|center|tile] [--backend swaybg|hyprpaper|awww|mpvpaper|linux-wallpaperengine] [--wallust] [--wallust-hook <script>]
 archpaper random <directory> [--wallust] [--wallust-hook <script>]
 archpaper daemon <directory> --interval <seconds> [--wallust] [--wallust-hook <script>]
 archpaper clear
 archpaper status
 archpaper backend
 archpaper list <directory>
+archpaper steam [--import]
 archpaper favorite <image|video|gif>
 archpaper favorites
 archpaper recent
@@ -150,6 +157,68 @@ archpaper set ~/Wallpapers/animation.gif --backend awww
 # Requires mpvpaper for video
 archpaper set ~/Wallpapers/video.mp4 --backend mpvpaper
 ```
+
+## Wallpaper Engine
+
+Archpaper supports locally downloaded **Wallpaper Engine projects** on Hyprland.
+Add a project folder or a folder containing projects using **+**, or choose
+**More → Import Wallpaper Engine from Steam**. Steam discovery includes native,
+Flatpak and Snap installations, plus additional disks listed in `libraryfolders.vdf`.
+It imports existing `steamapps/workshop/content/431960` folders; it does not download
+or subscribe to Workshop items.
+
+Each project appears once, using the title and preview from `project.json`.
+Internal textures and previews are not listed as separate wallpapers. Favorites,
+recent history and daemon rotation retain the project's `project.json` identity.
+
+### Playback
+
+- **Video projects:** played with `mpvpaper`, using the existing video settings.
+- **Scene projects:** played with [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine).
+  Install `linux-wallpaperengine-git` from the AUR and install the official
+  Wallpaper Engine through Steam to provide its assets.
+- **Web/application projects and incomplete projects:** displayed as unsupported
+  and excluded from random selection. Scene effects depend on the Linux engine's
+  compatibility; this is not full compatibility with the Windows application.
+
+In **Settings → Wallpaper Engine scenes**, configure:
+
+- **Monitor:** empty uses all active monitors returned by `hyprctl -j monitors`;
+  set a name such as `DP-1` to target one monitor.
+- **Assets directory:** detected from Steam, or set the path to the official
+  `steamapps/common/wallpaper_engine/assets` directory manually.
+- **Frame limit:** 1–240 FPS, default 30.
+- **Audio:** muted by default. Audio-reactive effects remain controlled by the engine.
+
+`fill`, `fit` and `stretch` map to the engine's scaling modes; `center` and `tile`
+use `fill` for scenes. These scene settings do not change mpvpaper video settings.
+
+```bash
+# Show discovered Workshop folders; --import also saves them in the library
+archpaper steam --import
+
+# Accepts the project folder or its project.json; selects the engine automatically
+archpaper set ~/Wallpapers/123456789
+archpaper set ~/Wallpapers/123456789/project.json --engine-fps 30 --engine-output DP-1
+
+# Custom Steam library / audio
+archpaper set ~/Wallpapers/123456789 \
+  --engine-assets "/mnt/Games/steamapps/common/wallpaper_engine/assets" --engine-audio
+
+# Rotate downloaded projects (the engine options also work with random/daemon)
+archpaper daemon ~/.local/share/Steam/steamapps/workshop/content/431960 --interval 300
+```
+
+Use `--engine-silent` to mute scenes again; pass an empty string to
+`--engine-output` or `--engine-assets` to restore automatic detection.
+The engine is supervised independently of the GUI. Switching wallpapers or
+running `archpaper clear` stops Archpaper's engine process. Initial startup is
+checked for early exits; successful startup does not guarantee that every effect
+renders correctly. On exit, the first 8 KiB of engine output are written to
+`$XDG_RUNTIME_DIR/archpaper/engine.log` (or `/tmp/archpaper-<uid>/engine.log`).
+
+Wallust uses the project's preview image. A missing preview is reported as a
+post-apply theme failure; the optional extra hook receives the project manifest path.
 
 ## Wallust integration
 
@@ -229,6 +298,7 @@ src/core/           # C17 application logic
   storage.c         # XDG paths, directories and atomic file writing
   cache.c           # Media probing, conversion, pruning and thumbnail extraction
   backend.c         # Wayland backend adapters
+  engine.c          # Wallpaper Engine metadata, Steam discovery and supervised playback
   daemon.c          # Single-instance background worker and lifecycle
   wallust.c         # Theme generation and ordered extra hooks
 src/cli/            # Standalone C entry point and command parsing

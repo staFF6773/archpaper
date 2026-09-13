@@ -23,7 +23,8 @@ typedef enum {
     BACKEND_SWAYBG,
     BACKEND_HYPRPAPER,
     BACKEND_MPVPPAPER,
-    BACKEND_SWWW
+    BACKEND_SWWW,
+    BACKEND_WALLPAPER_ENGINE
 } backend_t;
 
 const char *backend_to_string(backend_t b);

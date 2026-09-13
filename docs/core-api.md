@@ -4,6 +4,7 @@
 Qt or C++ dependency. Public headers live in `include/archpaper/` and provide C
 linkage guards. CMake enables the C++ language and searches for Qt only when
 `ARCHPAPER_BUILD_GUI=ON`.
+The core links to `json-c` for project metadata and monitor discovery.
 
 ## Responsibilities
 
@@ -43,6 +44,8 @@ health is not implied. Short-lived awww commands are checked for successful exit
 
 - `ap_result` describes invalid input, I/O, allocation, missing executable/file,
   process failure, timeout, cancellation, or an operation already running.
+  Wallpaper Engine adds unsupported/incomplete project, missing engine/assets,
+  and missing output errors with actionable messages.
 - Legacy `int` APIs also return these values; use `ap_error_string()` to present
   them. Availability/type predicates return booleans.
 - Initialize `ap_path_list` with `{0}`. It owns its strings; release it with
@@ -65,6 +68,9 @@ excess output is drained/discarded so a full pipe cannot deadlock the child.
 Every started process must be waited for or cancelled to release its descriptor
 and reap the child. A handle belongs to one caller and must not be reused while
 running. A timeout of zero means no deadline.
+`ap_process_start_logged()` has the same lifecycle but merges stderr into the
+captured output. `ap_process_cancel_requested()` checks the owning thread's
+cancellation callback during higher-level startup waits.
 
 `ap_process_cancel()` terminates the process group. A worker can register a
 per-thread cancellation callback with `ap_process_set_cancel_check()`, then clear
@@ -83,6 +89,37 @@ rather than continuing inside a forked Qt process. `daemon_start()` therefore
 expects the host executable to dispatch that command through `archpaper_cli()`,
 as both shipped launchers do. Locks use the per-user runtime directory. Stop is
 cooperative and cancels an active external operation before releasing the lock.
+
+## Wallpaper Engine projects
+
+`ap_engine_read()` accepts a project directory or `project.json` and fills a
+caller-owned `ap_engine_project`. No returned fields require freeing. Metadata
+reads are bounded to 4 MiB and restricted to regular files. Preview and media
+references resolve inside the project directory, including after symlink
+resolution. Scene projects may refer to `scene.json` packed in `scene.pkg`.
+Unknown types return metadata with `AP_ENGINE_UNSUPPORTED` for display.
+
+`ap_library_scan()` lists immediate project subdirectories as manifest paths;
+scanning a project itself returns only that project. Malformed manifests are
+skipped in a collection. Random selection excludes unsupported/incomplete
+projects. `ap_engine_discover()` replaces an initialized path list on success
+with deduplicated existing Steam Workshop directories. `ap_engine_outputs()`
+appends configured/Hyprland monitor names to an initialized list.
+
+`ap_wallpaper_apply()` normalizes project input to its manifest for persistence,
+selects mpvpaper for videos and linux-wallpaperengine for scenes, and uses the
+preview for Wallust. Extra hooks still receive the original project identity.
+Scene executable, assets and output checks run before stopping existing backends.
+
+The scene engine uses a fresh executable via `__engine-run`, dispatched through
+`archpaper_cli()`. The supervisor owns `engine.lock`, starts the renderer in a
+process group and publishes `engine.ready` after 250 ms without an early exit.
+Startup waits at most about three seconds, and checks cancellation. Stop signals
+the kernel lock owner; the supervisor terminates/reaps its renderer before
+releasing the lock. It captures bounded stdout/stderr diagnostics in `engine.log`
+on exit. This detects early startup failures, not rendering correctness or later
+health failures. As with daemon startup, embedders must dispatch the private
+command in their host executable.
 
 ## Storage and cache
 

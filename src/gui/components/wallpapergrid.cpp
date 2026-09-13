@@ -29,6 +29,7 @@
 
 #include "archpaper/cache.h"
 #include "archpaper/library.h"
+#include "archpaper/engine.h"
 extern "C" {
 #include "archpaper/utils.h"
 }
@@ -142,12 +143,20 @@ void WallpaperGrid::addWallpaper(const QString &path) {
 
     QString display = info.fileName();
     QString badge = mediaBadgeText(path);
+    ap_engine_project project = {};
+    bool supported = true;
+    if (ap_engine_is_project(path.toUtf8().constData()) && ap_engine_read(path.toUtf8().constData(), &project) == AP_OK) {
+        display = QString::fromUtf8(project.title);
+        supported = project.type != AP_ENGINE_UNSUPPORTED;
+        badge = supported ? QString("WE · %1").arg(QString::fromUtf8(project.type_name).toUpper()) : "WE · UNSUPPORTED";
+    }
     if (!badge.isEmpty()) {
         display += "\n" + badge;
     }
 
     auto *item = new QListWidgetItem(icon, display);
     item->setData(Qt::UserRole, path);
+    item->setData(Qt::UserRole + 1, supported);
     item->setToolTip(path);
     item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
     m_list->addItem(item);
@@ -210,13 +219,15 @@ QStringList WallpaperGrid::currentPaths() const {
 }
 
 void WallpaperGrid::selectRandom() {
-    int visible = visibleCount();
-    if (visible == 0) return;
+    int visible = 0;
+    for (int i = 0; i < m_list->count(); ++i)
+        if (!m_list->item(i)->isHidden() && m_list->item(i)->data(Qt::UserRole + 1).toBool()) ++visible;
+    if (visible == 0) { m_list->setCurrentItem(nullptr); return; }
 
     size_t selected;
     if (ap_random_index(static_cast<size_t>(visible), &selected) != AP_OK) return;
     for (int i = 0; i < m_list->count(); ++i) {
-        if (m_list->item(i)->isHidden()) continue;
+        if (m_list->item(i)->isHidden() || !m_list->item(i)->data(Qt::UserRole + 1).toBool()) continue;
         if (selected-- == 0) { m_list->setCurrentRow(i); return; }
     }
 }
@@ -245,7 +256,7 @@ void WallpaperGrid::onFilterTextChanged(const QString &text) {
     for (int i = 0; i < m_list->count(); ++i) {
         auto *item = m_list->item(i);
         QFileInfo info(item->data(Qt::UserRole).toString());
-        bool match = text.isEmpty() || info.fileName().contains(text, Qt::CaseInsensitive);
+        bool match = text.isEmpty() || info.fileName().contains(text, Qt::CaseInsensitive) || item->text().contains(text, Qt::CaseInsensitive);
         item->setHidden(!match);
         if (!match && item->isSelected())
             m_list->setCurrentItem(nullptr);
@@ -296,6 +307,11 @@ static QPixmap roundedThumbnail(const QImage &sourceImage, const QSize &targetSi
 }
 
 QPixmap WallpaperGrid::createThumbnail(const QString &path, const QSize &targetSize) {
+    if (ap_engine_is_project(path.toUtf8().constData())) {
+        ap_engine_project project;
+        if (ap_engine_read(path.toUtf8().constData(), &project) != AP_OK || !project.preview[0]) return QPixmap();
+        return createThumbnail(QString::fromUtf8(project.preview), targetSize);
+    }
     if (isVideo(path)) {
         QTemporaryFile tmp(QDir::tempPath() + "/archpaper_video_thumb_XXXXXX.png");
         tmp.setAutoRemove(true);

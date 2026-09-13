@@ -14,7 +14,11 @@ typedef enum {
     AP_PROCESS,
     AP_TIMEOUT,
     AP_CANCELLED,
-    AP_BUSY
+    AP_BUSY,
+    AP_UNSUPPORTED,
+    AP_ENGINE_MISSING,
+    AP_ASSETS_MISSING,
+    AP_OUTPUT_MISSING
 } ap_result;
 
 const char *ap_error_string(ap_result result);
