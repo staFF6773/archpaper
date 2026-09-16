@@ -11,6 +11,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QAction>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QSpinBox>
@@ -40,6 +41,7 @@
 #include "components/previewpanel.h"
 #include "components/settingspanel.h"
 #include "components/wallpapergrid.h"
+#include "components/exportdialog.h"
 
 extern "C" {
 #include "archpaper/backend.h"
@@ -262,6 +264,18 @@ void MainWindow::setupUi() {
                                      : "No downloaded Wallpaper Engine Workshop folders found");
         } else updateStatus(ap_error_string(rc));
         ap_path_list_free(&found);
+    });
+    auto *exportAction = menu->addAction("Export Wallpaper Engine resources…", this, [this]() {
+        const QString path = m_grid->selectedPath();
+        if (!ap_engine_is_project(path.toUtf8().constData())) {
+            updateStatus("Select a Wallpaper Engine project first");
+            return;
+        }
+        ExportDialog dialog(path, this);
+        dialog.exec();
+    });
+    connect(menu, &QMenu::aboutToShow, this, [this, exportAction]() {
+        exportAction->setEnabled(ap_engine_is_project(m_grid->selectedPath().toUtf8().constData()));
     });
     menu->addSeparator();
     menu->addAction("Clear current wallpaper", this, &MainWindow::onClear);

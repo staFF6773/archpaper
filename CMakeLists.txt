@@ -6,6 +6,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 option(ARCHPAPER_BUILD_GUI "Build the optional Qt interface" ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONC REQUIRED IMPORTED_TARGET json-c)
+pkg_check_modules(PNG REQUIRED IMPORTED_TARGET libpng)
+pkg_check_modules(LZ4 REQUIRED IMPORTED_TARGET liblz4)
 
 # Shared C core (static library)
 add_library(archpaper_core STATIC
@@ -22,6 +24,8 @@ add_library(archpaper_core STATIC
     src/core/history.c
     src/core/wallpaper.c
     src/core/engine.c
+    src/core/export.c
+    src/core/texture.c
 )
 
 target_include_directories(archpaper_core PUBLIC
@@ -30,7 +34,7 @@ target_include_directories(archpaper_core PUBLIC
 )
 
 target_compile_definitions(archpaper_core PRIVATE _DEFAULT_SOURCE)
-target_link_libraries(archpaper_core PUBLIC PkgConfig::JSONC)
+target_link_libraries(archpaper_core PUBLIC PkgConfig::JSONC PkgConfig::PNG PkgConfig::LZ4)
 target_compile_options(archpaper_core PRIVATE -Wall -Wextra -Wpedantic)
 
 if(ARCHPAPER_BUILD_GUI)
@@ -61,6 +65,8 @@ add_executable(archpaper
     src/gui/components/previewpanel.h
     src/gui/components/settingspanel.cpp
     src/gui/components/settingspanel.h
+    src/gui/components/exportdialog.cpp
+    src/gui/components/exportdialog.h
     src/gui/theme/resources.qrc
 )
 
@@ -87,4 +93,15 @@ if(BUILD_TESTING)
     target_link_libraries(core-test PRIVATE archpaper_core)
     add_test(NAME core COMMAND core-test $<TARGET_FILE:process-helper> $<TARGET_FILE:${CLI_TARGET}>)
     set_tests_properties(core PROPERTIES TIMEOUT 30)
+    add_executable(export-test tests/export_test.c)
+    target_link_libraries(export-test PRIVATE archpaper_core)
+    add_test(NAME export COMMAND export-test)
+    set_tests_properties(export PROPERTIES TIMEOUT 30)
+    if(ARCHPAPER_BUILD_GUI)
+        add_executable(export-gui-test tests/export_gui_test.cpp src/gui/components/exportdialog.cpp)
+        target_include_directories(export-gui-test PRIVATE src/gui)
+        target_link_libraries(export-gui-test PRIVATE archpaper_core Qt6::Widgets)
+        add_test(NAME export-gui COMMAND export-gui-test)
+        set_tests_properties(export-gui PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 endif()

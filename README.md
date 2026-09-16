@@ -19,6 +19,7 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with a **C17 co
 - Automatic backend detection: prefers **awww** when available because it is the most efficient for animated and static wallpapers on Wayland.
 - Animated wallpaper support: GIF/WebP/MP4/WebM/MKV/MOV with automatic backend selection.
 - **Wallpaper Engine projects**: Steam Workshop folder discovery, local projects, titles and previews; videos through mpvpaper and compatible scenes through linux-wallpaperengine.
+- **Wallpaper Engine resource export**: select original images/videos from project folders or PKGV packages, decode compatible TEX textures and save them independently.
 - Lightweight static previews for images, animations and videos; frame extraction is handled by the C core.
 - Background application/conversion in the GUI, with interruptible external processes.
 - Daemon mode for automatic wallpaper changes by interval.
@@ -30,6 +31,8 @@ Wallpaper manager for **Wayland** on Arch Linux and derivatives, with a **C17 co
 ```text
 swaybg
 json-c    # Wallpaper Engine metadata and Hyprland monitor discovery
+libpng    # PNG export for Wallpaper Engine textures
+lz4       # Compressed Wallpaper Engine textures
 qt6-base   # only for the optional GUI
 ```
 
@@ -81,8 +84,10 @@ The C tests use isolated temporary directories and mock executables. They exerci
 configuration validation/atomic writes, process failures/timeouts/cancellation,
 library scanning, favorites, history, cache fallback, wallust/hook ordering and
 daemon lifecycle, plus Wallpaper Engine project parsing, Steam discovery and
-supervised engine startup/shutdown, without Qt or a real Wayland session. Set `BUILD_TESTING=OFF` to
-omit test executables.
+supervised engine startup/shutdown, without Qt or a real Wayland session. Resource
+export tests verify PKGV extraction, TEX pixel output, embedded media, conflicting
+names, cancellation and malformed inputs. GUI builds additionally test the export
+dialog using Qt's offscreen platform. Set `BUILD_TESTING=OFF` to omit test executables.
 
 ## Install
 
@@ -115,6 +120,7 @@ In the window:
 - Press the star button to add/remove wallpapers from Favorites.
 - Open Settings to configure the backend, mode, wallust, video quality and the daemon.
 - Use **More → Import Wallpaper Engine from Steam** to add downloaded Workshop folders.
+- Select a project and use **More → Export Wallpaper Engine resources…** to save its images and videos.
 
 ### CLI
 
@@ -170,6 +176,32 @@ or subscribe to Workshop items.
 Each project appears once, using the title and preview from `project.json`.
 Internal textures and previews are not listed as separate wallpapers. Favorites,
 recent history and daemon rotation retain the project's `project.json` identity.
+
+### Export images and videos
+
+Select a downloaded project, then open **More → Export Wallpaper Engine resources…**.
+The dialog lists images, videos and TEX textures from the project folder and its
+PKGV packages (including `scene.pkg`), with their source size and output format.
+Select the resources to save, click **Export selected…**, and choose a destination
+folder. The project preview is labelled separately and unchecked by default.
+
+- Loose images/videos and embedded media keep their original bytes and format.
+- Static `TEXV0005` textures using `TEXB0001`–`TEXB0004` containers support
+  RGBA8888, R8, RG88 and DXT1/3/5, with optional LZ4 compression. They export as
+  PNG using the largest mip level, cropped to the original image dimensions.
+  Embedded PNG/JPEG/BMP/TIFF/GIF/WebP and MP4 resources are extracted directly.
+- Animated/sprite TEX textures, unknown encodings and oversized texture buffers
+  are shown as unavailable. Raw decoding is bounded to 16384 pixels per side and
+  256 MiB per texture payload; uncompressed embedded videos are streamed.
+- Resources are saved directly in the chosen folder. Existing files are kept;
+  colliding names receive numeric suffixes such as `wall (1).png`.
+- Scanning and exporting run in the background. **Cancel task** stops the work,
+  removes incomplete output and keeps files already exported. Failures include
+  per-resource details.
+
+These are the scene's original resources, not a recording of the rendered
+wallpaper: scripts, layered composition and effects are not baked into the output.
+Export does not require Steam to be running, a renderer or ffmpeg.
 
 ### Playback
 
@@ -324,6 +356,8 @@ src/core/           # C17 application logic
   cache.c           # Media probing, conversion, pruning and thumbnail extraction
   backend.c         # Wayland backend adapters
   engine.c          # Wallpaper Engine metadata, Steam discovery and supervised playback
+  export.c          # Resource discovery, bounded PKGV reads and atomic export
+  texture.c         # TEX/LZ4/DXT decoding and PNG output
   daemon.c          # Single-instance background worker and lifecycle
   wallust.c         # Theme generation and ordered extra hooks
 src/cli/            # Standalone C entry point and command parsing

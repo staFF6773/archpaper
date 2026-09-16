@@ -4,7 +4,8 @@
 Qt or C++ dependency. Public headers live in `include/archpaper/` and provide C
 linkage guards. CMake enables the C++ language and searches for Qt only when
 `ARCHPAPER_BUILD_GUI=ON`.
-The core links to `json-c` for project metadata and monitor discovery.
+The core links to `json-c` for project metadata and monitor discovery, plus
+`libpng` and `liblz4` for Wallpaper Engine texture export.
 
 ## Responsibilities
 
@@ -82,7 +83,8 @@ different thread.
 The application flow is synchronous in C. The GUI invokes it on a Qt worker and
 marshals the result back to the UI thread; closing the window requests
 cancellation and joins the worker. Thumbnail extraction uses the same C process
-API. Image decoding/rendering stays in Qt Widgets; Qt Multimedia is not required.
+API. Preview decoding/rendering stays in Qt Widgets; texture export is handled
+by the C core. Qt Multimedia is not required.
 
 The daemon starts a fresh executable using its private `__daemon-run` CLI entry,
 rather than continuing inside a forked Qt process. `daemon_start()` therefore
@@ -146,6 +148,41 @@ discarded objects and GPU allocation errors, even across chunk boundaries or
 after the capture buffer fills. This detects reported rendering failures and
 process exits, not arbitrary visually incorrect rendering. As with
 daemon startup, embedders must dispatch the private command in their executable.
+
+## Resource export
+
+`export.h` exposes `ap_resources_read(project, &list)` and
+`ap_resource_export(&list.items[i], directory, output, sizeof(output))`.
+Initialize the caller-owned `ap_resource_list` with `{0}` and release it with
+`ap_resource_list_free()`. Free an existing list before reading another project;
+read initializes the output and leaves it empty on failure. Do not mutate entries
+or free the list while an export is running.
+
+Entries describe project-relative names, source file slices, source size, preview
+identity, output extension and TEX support status. Loose files take precedence
+over package entries with the same relative name. Scanning skips symlinks and
+non-regular files, validates package paths/offsets and bounds traversal to 32
+levels and 100000 filesystem entries/resources (each package index is also capped
+at 100000 entries). TEX probing reads headers without decoding all textures.
+Unsupported/invalid textures remain in the list for display; corrupt package
+indexes fail the scan rather than presenting incomplete results.
+
+Export accepts an existing destination directory, flattens resource basenames and
+uses numeric suffixes to resolve conflicts. It streams media through a sibling
+temporary file, flushes/syncs/closes it, checks source identity/size/mtime and
+publishes with Linux `renameat2(RENAME_NOREPLACE)`. `AP_BUSY` indicates a changed
+source or exhausted conflict suffixes. Failed/cancelled exports remove temporary
+output; completed files are kept. Both operations honor the per-thread
+`ap_process_set_cancel_check()` callback. A GUI worker owns each operation and
+reports file-level progress without invoking widgets from the worker thread.
+
+Static TEX decoding supports RGBA8888, R8, RG88 and DXT1/3/5, optionally LZ4
+compressed. The first (largest) mip is written to PNG at the original image
+dimensions. Embedded supported image formats and MP4 keep their original bytes.
+Sprite animations, unknown encodings and excessive decoding allocations return
+`AP_UNSUPPORTED`; malformed sizes return `AP_INVALID`. Raw textures are bounded
+to 16384 pixels per side and 256 MiB of payload; embedded uncompressed media is
+streamed without a texture-sized allocation.
 
 ## Storage and cache
 
